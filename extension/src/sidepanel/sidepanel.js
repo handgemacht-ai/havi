@@ -18,9 +18,62 @@ let annotations = [];
 
 // --- Settings ---
 
+const pickElementBtn = document.getElementById('pick-element-btn');
+const captureBtnIcon = captureBtn.querySelector('svg').cloneNode(true);
+const pickElementBtnIcon = pickElementBtn.querySelector('svg').cloneNode(true);
+let captureMode = null; // null | 'capture' | 'pick-element'
+
+function resetCaptureState() {
+  captureMode = null;
+  captureBtn.textContent = '';
+  captureBtn.appendChild(captureBtnIcon.cloneNode(true));
+  captureBtn.appendChild(document.createTextNode('Capture'));
+  captureBtn.classList.remove('cancel');
+  pickElementBtn.textContent = '';
+  pickElementBtn.appendChild(pickElementBtnIcon.cloneNode(true));
+  pickElementBtn.appendChild(document.createTextNode('Pick element'));
+  pickElementBtn.classList.remove('cancel');
+}
+
+function cancelActiveCapture() {
+  chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+    if (tab?.id) chrome.tabs.sendMessage(tab.id, { type: 'cancel-capture' }).catch(() => {});
+  });
+}
+
 captureBtn.addEventListener('click', () => {
-  chrome.runtime.sendMessage({ type: 'start-capture-from-panel' }, () => {
-    void chrome.runtime.lastError;
+  if (captureMode) {
+    cancelActiveCapture();
+    return;
+  }
+
+  captureMode = 'capture';
+  captureBtn.textContent = 'Cancel capture';
+  captureBtn.classList.add('cancel');
+
+  chrome.runtime.sendMessage({ type: 'start-capture-from-panel' }, (response) => {
+    if (chrome.runtime.lastError || !response?.ok) {
+      resetCaptureState();
+      showStatus(`Capture failed: ${response?.error || 'no response'}`, 'error');
+    }
+  });
+});
+
+pickElementBtn.addEventListener('click', () => {
+  if (captureMode) {
+    cancelActiveCapture();
+    return;
+  }
+
+  captureMode = 'pick-element';
+  pickElementBtn.textContent = 'Cancel capture';
+  pickElementBtn.classList.add('cancel');
+
+  chrome.runtime.sendMessage({ type: 'start-pick-element-from-panel' }, (response) => {
+    if (chrome.runtime.lastError || !response?.ok) {
+      resetCaptureState();
+      showStatus(`Pick element failed: ${response?.error || 'no response'}`, 'error');
+    }
   });
 });
 
@@ -97,6 +150,20 @@ function getComment(ann) {
   if (!Array.isArray(body)) return '';
   const textBody = body.find((b) => b.type === 'TextualBody' && b.purpose === 'commenting');
   return textBody?.value || '';
+}
+
+function getElementText(ann) {
+  const body = ann.annotation?.body;
+  if (!Array.isArray(body)) return '';
+  const desc = body.find((b) => b.type === 'TextualBody' && b.purpose === 'describing');
+  return desc?.value || '';
+}
+
+function getCssSelector(ann) {
+  const selectors = ann.annotation?.target?.selector;
+  if (!Array.isArray(selectors)) return '';
+  const css = selectors.find((s) => s.type === 'CssSelector');
+  return css?.value || '';
 }
 
 function getViewport(ann) {
@@ -233,6 +300,8 @@ function renderList() {
 function createCard(ann) {
   const comment = getComment(ann);
   const viewport = getViewport(ann);
+  const elementText = getElementText(ann);
+  const cssSelector = getCssSelector(ann);
   const isExpanded = expandedId === ann.id;
 
   const thumbImg = el('img', {
@@ -303,6 +372,20 @@ function createCard(ann) {
   metaDl.appendChild(stateDt);
   metaDl.appendChild(stateDd);
 
+  const selectorParts = [];
+  if (elementText) {
+    selectorParts.push(el('div', { className: 'detail-selector' },
+      el('span', { className: 'detail-selector-label' }, 'Element text'),
+      el('pre', { className: 'detail-selector-value' }, elementText.length > 200 ? elementText.slice(0, 200) + '...' : elementText),
+    ));
+  }
+  if (cssSelector) {
+    selectorParts.push(el('div', { className: 'detail-selector' },
+      el('span', { className: 'detail-selector-label' }, 'CSS selector'),
+      el('code', { className: 'detail-selector-value detail-selector-code' }, cssSelector),
+    ));
+  }
+
   const deleteConfirm = el('div', { className: 'delete-confirm hidden', id: `delete-confirm-${ann.id}` },
     el('span', null, 'Delete this annotation?'),
     el('button', { className: 'btn-confirm-delete', onClick: (e) => { e.stopPropagation(); deleteAnnotation(ann.id); } }, 'Confirm'),
@@ -313,6 +396,7 @@ function createCard(ann) {
     detailImg,
     el('div', { className: 'detail-content' },
       commentWrap,
+      ...selectorParts,
       metaDl,
       el('div', { className: 'detail-actions' },
         el('button', { className: 'btn-edit', onClick: (e) => { e.stopPropagation(); startEdit(ann); } }, 'Edit'),
@@ -457,6 +541,9 @@ chrome.runtime.onMessage.addListener((message) => {
       annotations.unshift(message.data);
       renderList();
     }
+  }
+  if (message.type === 'capture-ended') {
+    resetCaptureState();
   }
 });
 

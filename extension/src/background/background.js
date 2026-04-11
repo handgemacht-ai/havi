@@ -8,7 +8,7 @@ async function ensureContentScript(tabId) {
   } catch {
     await chrome.scripting.executeScript({
       target: { tabId },
-      files: ['assets/fabric.min.js', 'assets/cropper.min.js', 'src/content/content.js'],
+      files: ['assets/fabric.min.js', 'assets/cropper.min.js', 'assets/css-selector-generator.min.js', 'src/content/content.js'],
     });
     await chrome.scripting.insertCSS({
       target: { tabId },
@@ -19,14 +19,22 @@ async function ensureContentScript(tabId) {
 
 async function startCaptureInTab(tabId) {
   const tab = await chrome.tabs.get(tabId);
-  if (!tab.url || !/^https?:\/\//.test(tab.url)) return;
-  try {
-    const dataUrl = await chrome.tabs.captureVisibleTab(null, { format: 'png' });
-    await ensureContentScript(tabId);
-    await chrome.tabs.sendMessage(tabId, { type: 'start-capture', dataUrl });
-  } catch (err) {
-    console.error('captureVisibleTab failed:', err.message);
+  if (!tab.url || !/^https?:\/\//.test(tab.url)) {
+    throw new Error('Cannot capture this page');
   }
+  const dataUrl = await chrome.tabs.captureVisibleTab(null, { format: 'png' });
+  await ensureContentScript(tabId);
+  await chrome.tabs.sendMessage(tabId, { type: 'start-capture', dataUrl });
+}
+
+async function startPickElementInTab(tabId) {
+  const tab = await chrome.tabs.get(tabId);
+  if (!tab.url || !/^https?:\/\//.test(tab.url)) {
+    throw new Error('Cannot capture this page');
+  }
+  const dataUrl = await chrome.tabs.captureVisibleTab(null, { format: 'png' });
+  await ensureContentScript(tabId);
+  await chrome.tabs.sendMessage(tabId, { type: 'start-pick-element', dataUrl });
 }
 
 chrome.commands.onCommand.addListener(async (command) => {
@@ -35,7 +43,9 @@ chrome.commands.onCommand.addListener(async (command) => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) return;
 
-  startCaptureInTab(tab.id);
+  startCaptureInTab(tab.id).catch((err) => {
+    console.error('Capture failed:', err.message);
+  });
 });
 
 function getServerUrl() {
@@ -98,10 +108,27 @@ async function apiRequest(path, options = {}) {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.type) {
     case 'start-capture-from-panel': {
-      chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
-        if (tab?.id) startCaptureInTab(tab.id);
+      (async () => {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!tab?.id) throw new Error('No active tab');
+        await startCaptureInTab(tab.id);
+        sendResponse({ ok: true });
+      })().catch((err) => {
+        sendResponse({ ok: false, error: err.message });
       });
-      return false;
+      return true;
+    }
+
+    case 'start-pick-element-from-panel': {
+      (async () => {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!tab?.id) throw new Error('No active tab');
+        await startPickElementInTab(tab.id);
+        sendResponse({ ok: true });
+      })().catch((err) => {
+        sendResponse({ ok: false, error: err.message });
+      });
+      return true;
     }
 
     case 'create-annotation': {

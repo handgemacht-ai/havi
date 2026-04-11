@@ -256,3 +256,41 @@
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* Element picker */
+
+.ann-picker-container {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483640;
+  cursor: crosshair;
+  isolation: isolate;
+}
+
+.ann-picker-highlight {
+  position: fixed;
+  display: none;
+  background: rgba(79, 70, 229, 0.12);
+  border: 2px solid rgba(79, 70, 229, 0.8);
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 2147483641;
+  transition: left 0.05s ease, top 0.05s ease, width 0.05s ease, height 0.05s ease;
+}
+
+.ann-picker-hint {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 8px;
+  pointer-events: none;
+  z-index: 2147483645;
+  animation: ann-fade-in 0.15s ease-out;
+  white-space: nowrap;
+}
