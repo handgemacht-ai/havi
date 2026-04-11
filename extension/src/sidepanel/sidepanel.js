@@ -19,7 +19,9 @@ let annotations = [];
 // --- Settings ---
 
 captureBtn.addEventListener('click', () => {
-  chrome.runtime.sendMessage({ type: 'start-capture-from-panel' });
+  chrome.runtime.sendMessage({ type: 'start-capture-from-panel' }, () => {
+    void chrome.runtime.lastError;
+  });
 });
 
 function showStatus(message, type) {

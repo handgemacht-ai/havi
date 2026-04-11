@@ -20,8 +20,13 @@ async function ensureContentScript(tabId) {
 async function startCaptureInTab(tabId) {
   const tab = await chrome.tabs.get(tabId);
   if (!tab.url || !/^https?:\/\//.test(tab.url)) return;
-  await ensureContentScript(tabId);
-  await chrome.tabs.sendMessage(tabId, { type: 'start-capture' });
+  try {
+    const dataUrl = await chrome.tabs.captureVisibleTab(null, { format: 'png' });
+    await ensureContentScript(tabId);
+    await chrome.tabs.sendMessage(tabId, { type: 'start-capture', dataUrl });
+  } catch (err) {
+    console.error('captureVisibleTab failed:', err.message);
+  }
 }
 
 chrome.commands.onCommand.addListener(async (command) => {
@@ -98,12 +103,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
       return false;
     }
-
-    case 'capture-visible-tab':
-      chrome.tabs.captureVisibleTab(null, { format: 'png' })
-        .then((dataUrl) => sendResponse({ dataUrl }))
-        .catch((err) => sendResponse({ error: err.message }));
-      return true;
 
     case 'create-annotation': {
       const { annotation, imageDataUrl } = message.data;
