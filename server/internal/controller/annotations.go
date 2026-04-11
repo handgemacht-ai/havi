@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -255,7 +256,7 @@ func toResponse(ann *model.Annotation) map[string]any {
 		"motivation": ann.Motivation,
 		"creator":    ann.Creator,
 		"resolution": ann.Resolution,
-		"created_at": ann.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		"updated_at": ann.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+		"created_at": ann.CreatedAt.UTC().Format(time.RFC3339),
+		"updated_at": ann.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 }
