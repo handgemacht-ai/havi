@@ -20,6 +20,16 @@ The `annotation` JSONB column is the canonical W3C envelope. Indexed columns (`p
 
 Never flatten W3C fields into top-level SQL columns. The JSONB column is the source of truth.
 
+## MCP Endpoint
+
+Mounted at `/mcp` (HTTP Streamable transport via `go-sdk`). Three tools:
+
+- `list_annotations` — list/filter annotations (wraps `AnnotationService.List`)
+- `get_annotation_image` — get screenshot as base64 image (wraps `AnnotationService.GetImage`)
+- `resolve_annotation` — mark annotation resolved with metadata (wraps `AnnotationService.Resolve`)
+
+Claude Code discovers the server via `../.mcp.json`.
+
 ## Testing
 
 Use scenarigo for HTTP integration tests against real Postgres. Do not mock the database.
