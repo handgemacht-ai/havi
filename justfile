@@ -1,5 +1,7 @@
 # Annotation Platform — dev commands
 
+set dotenv-load
+
 up:
     docker compose up -d
 
