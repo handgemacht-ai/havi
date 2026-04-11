@@ -1,5 +1,7 @@
 const DEFAULT_SERVER_URL = 'http://localhost:8090';
 
+chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+
 chrome.commands.onCommand.addListener(async (command) => {
   if (command !== 'toggle-capture') return;
 
