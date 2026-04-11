@@ -38,7 +38,7 @@ CREATE_STATUS=$(echo "$CREATE_RESP" | tail -1)
 CREATE_BODY=$(echo "$CREATE_RESP" | sed '$d')
 check "$CREATE_STATUS" "201" "POST /api/annotations returns 201"
 
-ID=$(echo "$CREATE_BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+ID=$(echo "$CREATE_BODY" | jq -r '.data.id')
 if [ -z "$ID" ]; then
   fail "Could not extract annotation ID from response"
   rm -f "$TEST_PNG"
