@@ -1,0 +1,228 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #1e1e2e;
+  background: #fafafe;
+  max-width: 360px;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+#header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid #e8e8f0;
+  background: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+#header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#header h1 {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #1e1e2e;
+}
+
+#status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
+  transition: background 0.3s ease, box-shadow 0.3s ease;
+}
+
+#status-dot.disconnected {
+  background: #9ca3af;
+  box-shadow: 0 0 0 2px rgba(156, 163, 175, 0.2);
+}
+
+#settings-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.2s ease;
+}
+
+#settings-toggle:hover {
+  background: #f0f0f8;
+  color: #4F46E5;
+}
+
+#settings-toggle:active {
+  transform: scale(0.92);
+}
+
+#settings-toggle.active {
+  background: #eef2ff;
+  color: #4F46E5;
+}
+
+#settings-panel {
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  padding: 0 16px;
+  background: #fff;
+  border-bottom: 1px solid transparent;
+  transition: max-height 0.25s ease, opacity 0.2s ease, padding 0.25s ease, border-color 0.25s ease;
+}
+
+#settings-panel.open {
+  max-height: 160px;
+  opacity: 1;
+  padding: 12px 16px 14px;
+  border-bottom-color: #e8e8f0;
+}
+
+#settings-panel label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+  margin-bottom: 6px;
+}
+
+#settings-row {
+  display: flex;
+  gap: 8px;
+}
+
+#server-url-input {
+  flex: 1;
+  height: 34px;
+  padding: 0 10px;
+  font-size: 12.5px;
+  font-family: inherit;
+  color: #1e1e2e;
+  background: #fafafe;
+  border: 1px solid #d4d4de;
+  border-radius: 7px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+#server-url-input:focus {
+  border-color: #4F46E5;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+}
+
+#server-url-input.error {
+  border-color: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+}
+
+#save-url-btn {
+  height: 34px;
+  padding: 0 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-family: inherit;
+  color: #fff;
+  background: #4F46E5;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+  white-space: nowrap;
+}
+
+#save-url-btn:hover {
+  background: #4338ca;
+}
+
+#save-url-btn:active {
+  transform: scale(0.96);
+}
+
+#settings-status {
+  font-size: 11.5px;
+  min-height: 18px;
+  margin-top: 6px;
+  transition: color 0.15s ease;
+}
+
+#settings-status.success {
+  color: #16a34a;
+}
+
+#settings-status.error {
+  color: #ef4444;
+}
+
+#filter-bar {
+  min-height: 0;
+}
+
+#annotation-list {
+  flex: 1;
+  padding: 16px;
+}
+
+#empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 48px 24px;
+  gap: 12px;
+}
+
+#empty-state svg {
+  color: #c7c7d4;
+  margin-bottom: 4px;
+}
+
+#empty-state p {
+  color: #6b7280;
+  font-size: 13px;
+}
+
+#empty-hint {
+  font-size: 12px !important;
+  color: #9ca3af !important;
+}
+
+kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: #374151;
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  box-shadow: 0 1px 0 #d1d5db;
+}
