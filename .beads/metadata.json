@@ -1,10 +1,7 @@
 {
   "database": "dolt",
   "backend": "dolt",
-  "dolt_mode": "server",
-  "dolt_server_host": "127.0.0.1",
-  "dolt_server_port": 3307,
-  "dolt_server_user": "root",
-  "dolt_database": "annotation_plugin",
-  "project_id": "d9d9b764-7c94-4bd2-a0f4-370fff6b492e"
+  "dolt_mode": "embedded",
+  "dolt_database": "ann",
+  "project_id": "272b4352-b5c3-4a90-a386-1a6d7f2b9122"
 }
