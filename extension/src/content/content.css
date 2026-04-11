@@ -67,7 +67,7 @@
 /* Markup toolbar */
 
 .ann-toolbar {
-  position: absolute;
+  position: fixed;
   display: flex;
   gap: 2px;
   padding: 4px;
