@@ -11,6 +11,7 @@ import (
 
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/controller"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/db"
+	annotationmcp "github.com/handgemacht-ai/annotation-plugin/server/internal/mcp"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/middleware"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/repo"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/service"
@@ -50,12 +51,16 @@ func main() {
 	wh := webhook.NewWebhook(webhookURL)
 	ctrl := controller.NewAnnotationController(annotationService, wh)
 
+	mcpModule := annotationmcp.New(annotationService)
+
 	mux := http.NewServeMux()
 	controller.RegisterRoutes(mux, ctrl)
+	mux.Handle("/mcp", mcpModule.Handler())
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
+	log.Printf("mcp endpoint mounted path=/mcp")
 
 	handler := middleware.CORS(corsOrigins, mux)
 
