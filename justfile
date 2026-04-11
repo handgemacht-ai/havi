@@ -25,7 +25,7 @@ db-reset:
     @echo "Not implemented — will be added in Epic 2"
 
 lint:
-    cd server && golangci-lint run
+    cd server && golangci-lint run --build-tags scenario
 
 fmt:
     cd server && gofmt -w .
@@ -33,4 +33,4 @@ fmt:
 test: test-server
 
 test-server:
-    cd server && go test ./...
+    cd server && go test -tags scenario -count=1 ./...
