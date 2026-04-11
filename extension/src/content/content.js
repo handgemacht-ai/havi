@@ -1,6 +1,9 @@
 (function () {
   'use strict';
 
+  if (window.__annPluginLoaded) return;
+  window.__annPluginLoaded = true;
+
   let state = 'idle';
   let container = null;
   let cropper = null;
@@ -172,15 +175,11 @@
       imageSmoothingQuality: 'high'
     });
 
-    const imgData = cropper.getImageData();
-    const scaleX = imgData.naturalWidth / imgData.width;
-    const scaleY = imgData.naturalHeight / imgData.height;
-
     captureData = {
-      regionX: Math.round(data.x / scaleX),
-      regionY: Math.round(data.y / scaleY),
-      regionW: Math.round(data.width / scaleX),
-      regionH: Math.round(data.height / scaleY),
+      regionX: data.x,
+      regionY: data.y,
+      regionW: data.width,
+      regionH: data.height,
       croppedCanvas: croppedCanvas,
       viewportWidth: window.innerWidth,
       viewportHeight: window.innerHeight,
@@ -508,18 +507,18 @@
     fabricCanvas.renderAll();
 
     var compositeDataUrl = fabricCanvas.toDataURL({ format: 'png', multiplier: 1 });
+    var markupSvg = hasMarkup ? fabricCanvas.toSVG() : null;
 
+    var canvasEl = fabricCanvas.lowerCanvasEl;
     fabricCanvas.dispose();
     fabricCanvas = null;
 
     if (toolbar) { toolbar.remove(); toolbar = null; }
-    var canvasWrapper = container.querySelector('.canvas-container');
-    if (canvasWrapper) canvasWrapper.remove();
-    var rawCanvas = document.getElementById('ann-fabric-canvas');
-    if (rawCanvas) rawCanvas.remove();
+    if (canvasEl && canvasEl.parentElement) canvasEl.parentElement.remove();
 
     captureData.compositeDataUrl = compositeDataUrl;
     captureData.hasMarkup = hasMarkup;
+    captureData.markupSvg = markupSvg;
 
     showCommentInput(captureData);
   }
@@ -578,58 +577,64 @@
   }
 
   function submitAnnotation(commentText, data) {
-    fetch(data.compositeDataUrl)
-      .then(function (r) { return r.blob(); })
-      .then(function (compositeBlob) {
-        var body = [];
-        if (commentText && commentText.trim()) {
-          body.push({
-            type: 'TextualBody',
-            value: commentText.trim(),
-            purpose: 'commenting'
-          });
-        }
-        body.push({ type: 'Image' });
-
-        var selectors = [
-          {
-            type: 'FragmentSelector',
-            conformsTo: 'http://www.w3.org/TR/media-frags/',
-            value: 'xywh=' + data.regionX + ',' + data.regionY + ',' + data.regionW + ',' + data.regionH
-          }
-        ];
-
-        if (data.hasMarkup) {
-          selectors.push({
-            type: 'SvgSelector',
-            value: '<svg>markup</svg>'
-          });
-        }
-
-        var annotation = {
-          '@context': 'http://www.w3.org/ns/anno.jsonld',
-          type: 'Annotation',
-          motivation: 'commenting',
-          created: new Date().toISOString(),
-          body: body,
-          target: {
-            source: data.pageUrl,
-            selector: selectors,
-            state: {
-              type: 'HttpRequestState',
-              value: 'viewport=' + data.viewportWidth + 'x' + data.viewportHeight
-            }
-          }
-        };
-
-        chrome.runtime.sendMessage({
-          type: 'create-annotation',
-          data: { annotation: annotation, imageBlob: compositeBlob }
-        });
-
-        cancelCapture();
-        showToast('Annotation saved');
+    var now = new Date().toISOString();
+    var body = [];
+    if (commentText && commentText.trim()) {
+      body.push({
+        type: 'TextualBody',
+        value: commentText.trim(),
+        purpose: 'commenting'
       });
+    }
+    body.push({ type: 'Image' });
+
+    var selectors = [
+      {
+        type: 'FragmentSelector',
+        conformsTo: 'http://www.w3.org/TR/media-frags/',
+        value: 'xywh=' + data.regionX + ',' + data.regionY + ',' + data.regionW + ',' + data.regionH
+      }
+    ];
+
+    if (data.hasMarkup && data.markupSvg) {
+      selectors.push({
+        type: 'SvgSelector',
+        value: data.markupSvg
+      });
+    }
+
+    var annotation = {
+      '@context': 'http://www.w3.org/ns/anno.jsonld',
+      type: 'Annotation',
+      motivation: 'commenting',
+      created: now,
+      modified: now,
+      creator: {
+        type: 'Person',
+        name: 'developer'
+      },
+      body: body,
+      target: {
+        source: data.pageUrl,
+        selector: selectors,
+        state: {
+          type: 'HttpRequestState',
+          value: 'viewport=' + data.viewportWidth + 'x' + data.viewportHeight
+        }
+      }
+    };
+
+    chrome.runtime.sendMessage({
+      type: 'create-annotation',
+      data: { annotation: annotation, imageDataUrl: data.compositeDataUrl }
+    }, function (response) {
+      if (response?.error) {
+        showToast('Failed to save annotation');
+        return;
+      }
+      cancelCapture();
+      showToast('Annotation saved');
+    });
   }
 
   function showToast(message) {
