@@ -179,6 +179,50 @@ body {
   color: #ef4444;
 }
 
+#capture-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #e8e8f0;
+  background: #fff;
+}
+
+#capture-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  color: #fff;
+  background: #4F46E5;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+  white-space: nowrap;
+}
+
+#capture-btn:hover {
+  background: #4338ca;
+}
+
+#capture-btn:active {
+  transform: scale(0.96);
+}
+
+#capture-btn svg {
+  flex-shrink: 0;
+}
+
+#capture-hint {
+  font-size: 11.5px;
+  color: #9ca3af;
+}
+
 #filter-bar {
   min-height: 0;
 }

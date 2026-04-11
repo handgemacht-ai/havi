@@ -13,6 +13,13 @@ chrome.commands.onCommand.addListener(async (command) => {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.type) {
+    case 'start-capture-from-panel': {
+      chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+        if (tab?.id) chrome.tabs.sendMessage(tab.id, { type: 'start-capture' });
+      });
+      return false;
+    }
+
     case 'capture-visible-tab':
       chrome.tabs.captureVisibleTab(null, { format: 'png' })
         .then((dataUrl) => sendResponse({ dataUrl }))

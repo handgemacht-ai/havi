@@ -31,6 +31,17 @@
 
   <div id="filter-bar"></div>
 
+  <div id="capture-bar">
+    <button id="capture-btn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+        <circle cx="12" cy="13" r="4"/>
+      </svg>
+      Capture
+    </button>
+    <span id="capture-hint">or press <kbd>Ctrl+Shift+A</kbd></span>
+  </div>
+
   <div id="annotation-list">
     <div id="empty-state">
       <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
@@ -39,7 +50,7 @@
         <path d="m21 15-5-5L5 21"/>
       </svg>
       <p>No annotations yet.</p>
-      <p id="empty-hint">Press <kbd>Ctrl+Shift+A</kbd> to capture your first annotation.</p>
+      <p id="empty-hint">Click <strong>Capture</strong> above or press <kbd>Ctrl+Shift+A</kbd></p>
     </div>
   </div>
 
