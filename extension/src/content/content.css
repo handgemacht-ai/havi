@@ -64,6 +64,29 @@
   background: #fff;
 }
 
+/* Markup scrim — dims everything behind the capture */
+
+.ann-markup-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  z-index: 2147483641;
+}
+
+/* Markup frame — border + shadow around the captured region */
+
+.ann-markup-frame {
+  position: fixed;
+  z-index: 2147483642;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  border-radius: 6px;
+  box-shadow:
+    0 0 0 4px rgba(79, 70, 229, 0.6),
+    0 0 40px rgba(79, 70, 229, 0.35),
+    0 8px 32px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
 /* Markup toolbar */
 
 .ann-toolbar {
