@@ -1,8 +1,13 @@
+const captureBtn = document.getElementById('capture-btn');
 const settingsToggle = document.getElementById('settings-toggle');
 const settingsPanel = document.getElementById('settings-panel');
 const serverUrlInput = document.getElementById('server-url-input');
 const saveUrlBtn = document.getElementById('save-url-btn');
 const settingsStatus = document.getElementById('settings-status');
+
+captureBtn.addEventListener('click', () => {
+  chrome.runtime.sendMessage({ type: 'start-capture-from-panel' });
+});
 
 function showStatus(message, type) {
   settingsStatus.textContent = message;
