@@ -3,7 +3,7 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [0.3.0] - 2026-04-11
+## [0.3.0] - 2026-04-12
 
 ### Added
 
@@ -16,8 +16,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `.mcp.json` at project root for Claude Code auto-discovery (ann-bgn.2)
 - 6 MCP integration tests covering initialize, tool listing, filtering, resolve, errors (ann-bgn)
 
+#### Chrome Extension — DOM Element Picker
+- "Pick element" button in side panel for DOM-based annotation selection
+- Hover highlight overlay (indigo) tracking element bounding rects
+- CSS selector generation via css-selector-generator (UMD, 10.6 KB)
+- Element text capture as W3C TextualBody with purpose "describing"
+- CssSelector stored in annotation target.selector array
+- Screenshot auto-cropped to selected element's bounding rect
+- Hint bar ("Click an element to annotate — Esc to cancel")
+
+#### Chrome Extension — Capture UX
+- Capture button shows "Cancel capture" while active (both modes)
+- Cancel from side panel sends cancel-capture to content script
+- Error feedback via sendResponse (replaces silent failures)
+- Crosshair cursor during markup drawing (rect, arrow, highlight)
+- I-beam cursor for text tool
+
+#### Side Panel — Selector Visualization
+- Element text shown in expanded card detail (grey block, truncated at 200 chars)
+- CSS selector shown in expanded card detail (indigo monospace)
+
+### Fixed
+- start-capture-from-panel handler now returns true (keeps message channel open)
+- startCaptureInTab throws on invalid URLs instead of silently returning
+- host_permissions changed to `<all_urls>` for captureVisibleTab on any page
+
 ### Dependencies
 - github.com/modelcontextprotocol/go-sdk v1.5.0
+- css-selector-generator v3.9.1 (vendored UMD build)
 
 ## [0.2.0] - 2026-04-11
 
