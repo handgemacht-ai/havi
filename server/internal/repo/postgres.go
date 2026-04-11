@@ -34,6 +34,39 @@ func (r *PostgresRepo) Create(ctx context.Context, annotation *model.Annotation)
 	return err
 }
 
+func (r *PostgresRepo) CreateWithImage(ctx context.Context, annotation *model.Annotation, imageData []byte, contentType string) error {
+	rec, err := model.ToRecord(annotation)
+	if err != nil {
+		return err
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	_, err = tx.Exec(ctx,
+		`INSERT INTO annotations (id, project, domain, worktree, branch, state, motivation, creator, annotation, resolution, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+		rec.ID, rec.Project, rec.Domain, rec.Worktree, rec.Branch, rec.State, rec.Motivation, rec.Creator,
+		rec.AnnotationJSON, rec.Resolution, rec.CreatedAt, rec.UpdatedAt,
+	)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx,
+		`INSERT INTO annotation_images (annotation_id, image_data, content_type, size_bytes, created_at)
+		 VALUES ($1, $2, $3, $4, now())`,
+		annotation.ID, imageData, contentType, len(imageData),
+	)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
 func (r *PostgresRepo) CreateImage(ctx context.Context, annotationID uuid.UUID, data []byte, contentType string, sizeBytes int) error {
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO annotation_images (annotation_id, image_data, content_type, size_bytes, created_at)
