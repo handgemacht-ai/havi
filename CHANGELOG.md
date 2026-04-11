@@ -3,6 +3,28 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.2.0] - 2026-04-11
+
+### Added
+
+#### Chrome Extension — API Wiring
+- Background service worker API client with 6 message handlers: create (multipart), list, get, update, delete, health check (ann-qnq.1)
+- Data URL to Blob conversion for screenshot upload (ann-qnq.1)
+- Error handling with timeouts (10s for create, 5s for others) (ann-qnq.1)
+- Side panel annotation list with domain-scoped fetching (ann-qnq.2)
+- Annotation card UI: thumbnail, comment preview, state/viewport/time chips (ann-qnq.2)
+- Expand/collapse detail view with full screenshot and metadata (ann-qnq.2)
+- Inline comment editing with save/cancel (ann-qnq.2)
+- Delete with inline confirmation dialog (ann-qnq.2)
+- State filter bar: All / Open / Resolved (ann-qnq.2)
+- Auto-refresh on new annotation via message passing (ann-qnq.2)
+- Connection status indicator with 30s health check polling (ann-qnq.2)
+- Disconnect banner when server is unreachable (ann-qnq.2)
+- `host_permissions` for localhost and 127.0.0.1 (ann-qnq.1)
+
+#### Testing
+- E2E smoke test script (`test-e2e.sh`) with 14 curl assertions covering full lifecycle (ann-qnq.3)
+
 ## [0.1.0] - 2026-04-11
 
 ### Added
