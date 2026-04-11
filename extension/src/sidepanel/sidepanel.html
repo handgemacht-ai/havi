@@ -29,7 +29,13 @@
     <p id="settings-status"></p>
   </div>
 
-  <div id="filter-bar"></div>
+  <div id="connection-banner" class="hidden">Server unavailable</div>
+
+  <div id="filter-bar">
+    <button class="filter-btn active" data-state="">All</button>
+    <button class="filter-btn" data-state="open">Open</button>
+    <button class="filter-btn" data-state="resolved">Resolved</button>
+  </div>
 
   <div id="capture-bar">
     <button id="capture-btn">
