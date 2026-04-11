@@ -36,3 +36,7 @@ test: test-server
 
 test-server:
     cd server && go test -tags scenario -count=1 ./...
+
+pack:
+    google-chrome-stable --pack-extension=extension {{ if path_exists("extension.pem") == "true" { "--pack-extension-key=extension.pem" } else { "" } }} --no-sandbox
+    @ls -lh extension.crx

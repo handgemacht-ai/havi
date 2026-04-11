@@ -9,6 +9,8 @@ server/cmd/server/server
 
 # Extension
 extension/web-ext-artifacts/
+extension.crx
+extension.pem
 
 # Environment
 .env
