@@ -3,6 +3,22 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.0] - 2026-04-11
+
+### Added
+
+#### MCP Server
+- MCP endpoint at `/mcp` with HTTP Streamable transport (ann-bgn.1)
+- `list_annotations` tool with all ListFilters fields: domain, worktree, branch, state, motivation, viewport, creator, limit, offset (ann-bgn.1)
+- `get_annotation_image` tool returning base64-encoded screenshot via ImageContent (ann-bgn.1)
+- `resolve_annotation` tool with optional metadata map (ann-bgn.1)
+- MCP module wired into existing HTTP server alongside REST routes (ann-bgn.2)
+- `.mcp.json` at project root for Claude Code auto-discovery (ann-bgn.2)
+- 6 MCP integration tests covering initialize, tool listing, filtering, resolve, errors (ann-bgn)
+
+### Dependencies
+- github.com/modelcontextprotocol/go-sdk v1.5.0
+
 ## [0.2.0] - 2026-04-11
 
 ### Added
