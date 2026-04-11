@@ -131,13 +131,21 @@ function getCurrentDomain() {
   });
 }
 
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+// --- DOM Construction (safe, no innerHTML with user data) ---
+
+function svgEl(tag, attrs) {
+  const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  if (attrs) {
+    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  }
+  return node;
 }
 
-// --- DOM Construction (safe, no innerHTML with user data) ---
+function svg(attrs, ...children) {
+  const node = svgEl('svg', attrs);
+  for (const child of children) node.appendChild(child);
+  return node;
+}
 
 function el(tag, attrs, ...children) {
   const node = document.createElement(tag);
@@ -232,23 +240,12 @@ function createCard(ann) {
     loading: 'lazy',
   });
   const thumbPlaceholder = el('div', { className: 'card-thumb-placeholder', style: 'display:none' });
-  const phSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  phSvg.setAttribute('width', '20');
-  phSvg.setAttribute('height', '20');
-  phSvg.setAttribute('viewBox', '0 0 24 24');
-  phSvg.setAttribute('fill', 'none');
-  phSvg.setAttribute('stroke', 'currentColor');
-  phSvg.setAttribute('stroke-width', '1.5');
-  ['rect:x=3:y=3:width=18:height=18:rx=2', 'circle:cx=8.5:cy=8.5:r=1.5'].forEach((spec) => {
-    const [tag, ...attrs] = spec.split(':');
-    const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
-    attrs.forEach((a) => { const [k, v] = a.split('='); node.setAttribute(k, v); });
-    phSvg.appendChild(node);
-  });
-  const phPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  phPath.setAttribute('d', 'm21 15-5-5L5 21');
-  phSvg.appendChild(phPath);
-  thumbPlaceholder.appendChild(phSvg);
+  thumbPlaceholder.appendChild(svg(
+    { width: '20', height: '20', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5' },
+    svgEl('rect', { x: '3', y: '3', width: '18', height: '18', rx: '2' }),
+    svgEl('circle', { cx: '8.5', cy: '8.5', r: '1.5' }),
+    svgEl('path', { d: 'm21 15-5-5L5 21' }),
+  ));
   thumbImg.addEventListener('error', () => {
     thumbImg.style.display = 'none';
     thumbPlaceholder.style.display = 'flex';
@@ -260,19 +257,11 @@ function createCard(ann) {
     el('span', { className: 'chip chip-time' }, timeAgo(ann.created_at)),
   );
 
-  const chevronSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  chevronSvg.setAttribute('class', `card-chevron${isExpanded ? ' expanded' : ''}`);
-  chevronSvg.setAttribute('width', '16');
-  chevronSvg.setAttribute('height', '16');
-  chevronSvg.setAttribute('viewBox', '0 0 16 16');
-  chevronSvg.setAttribute('fill', 'none');
-  chevronSvg.setAttribute('stroke', 'currentColor');
-  chevronSvg.setAttribute('stroke-width', '2');
-  chevronSvg.setAttribute('stroke-linecap', 'round');
-  chevronSvg.setAttribute('stroke-linejoin', 'round');
-  const chevronPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  chevronPath.setAttribute('d', 'm4 6 4 4 4-4');
-  chevronSvg.appendChild(chevronPath);
+  const chevronSvg = svg(
+    { class: `card-chevron${isExpanded ? ' expanded' : ''}`, width: '16', height: '16', viewBox: '0 0 16 16',
+      fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' },
+    svgEl('path', { d: 'm4 6 4 4 4-4' }),
+  );
 
   const summary = el('div', { className: 'card-summary', onClick: () => toggleExpand(ann.id) },
     el('div', { className: 'card-thumb-wrap' }, thumbImg, thumbPlaceholder),
