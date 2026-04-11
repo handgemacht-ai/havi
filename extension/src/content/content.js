@@ -48,7 +48,8 @@
       return;
     }
     if (message.type === 'start-capture' && state === 'idle') {
-      startCapture();
+      setState('capturing');
+      initRegionSelection(message.dataUrl);
     }
   });
 
@@ -76,20 +77,6 @@
       svg.appendChild(el);
     });
     return svg;
-  }
-
-  // --- Phase: Capture ---
-
-  function startCapture() {
-    setState('capturing');
-    chrome.runtime.sendMessage({ type: 'capture-visible-tab' }, (response) => {
-      if (response?.error) {
-        console.error('captureVisibleTab failed:', response.error);
-        setState('idle');
-        return;
-      }
-      initRegionSelection(response.dataUrl);
-    });
   }
 
   // --- Phase: Region Selection (Cropper.js) ---
@@ -644,7 +631,7 @@
       type: 'create-annotation',
       data: { annotation: annotation, imageDataUrl: data.compositeDataUrl }
     }, function (response) {
-      if (response?.error) {
+      if (chrome.runtime.lastError || response?.error) {
         showToast('Failed to save annotation');
         return;
       }
