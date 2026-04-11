@@ -58,7 +58,7 @@ func TestMain(m *testing.M) {
 	controller.RegisterRoutes(mux, ctrl)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 
 	handler := middleware.CORS("", mux)
@@ -71,7 +71,7 @@ func TestMain(m *testing.M) {
 	controller.RegisterRoutes(mux2, ctrl2)
 	mux2.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 	handler2 := middleware.CORS("", mux2)
 	testServer.Close()
@@ -155,7 +155,7 @@ func TestHealthCheck(t *testing.T) {
 	}
 
 	var body map[string]string
-	json.NewDecoder(resp.Body).Decode(&body)
+	_ = json.NewDecoder(resp.Body).Decode(&body)
 	if body["status"] != "ok" {
 		t.Errorf("health body = %v, want status=ok", body)
 	}
