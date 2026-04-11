@@ -9,6 +9,7 @@ import (
 
 type AnnotationRepo interface {
 	Create(ctx context.Context, annotation *model.Annotation) error
+	CreateWithImage(ctx context.Context, annotation *model.Annotation, imageData []byte, contentType string) error
 	CreateImage(ctx context.Context, annotationID uuid.UUID, data []byte, contentType string, sizeBytes int) error
 	List(ctx context.Context, filters model.ListFilters) ([]model.Annotation, int, error)
 	Get(ctx context.Context, id uuid.UUID) (*model.Annotation, error)

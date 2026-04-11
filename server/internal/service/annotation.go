@@ -55,15 +55,15 @@ func (s *AnnotationService) Create(ctx context.Context, w3c *model.W3CAnnotation
 		UpdatedAt:  now,
 	}
 
-	if err := s.repo.Create(ctx, ann); err != nil {
-		return nil, err
-	}
-
 	if hasImage {
 		if contentType == "" {
 			contentType = "image/png"
 		}
-		if err := s.repo.CreateImage(ctx, id, imageData, contentType, len(imageData)); err != nil {
+		if err := s.repo.CreateWithImage(ctx, ann, imageData, contentType); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := s.repo.Create(ctx, ann); err != nil {
 			return nil, err
 		}
 	}
