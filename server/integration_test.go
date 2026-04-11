@@ -23,6 +23,7 @@ import (
 
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/controller"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/db"
+	annotationmcp "github.com/handgemacht-ai/annotation-plugin/server/internal/mcp"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/middleware"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/repo"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/service"
@@ -71,8 +72,10 @@ func TestMain(m *testing.M) {
 	// Recreate with real base URL
 	svc2 := service.NewAnnotationService(annotationRepo, testServer.URL)
 	ctrl2 := controller.NewAnnotationController(svc2, nil)
+	mcpModule := annotationmcp.New(svc2)
 	mux2 := http.NewServeMux()
 	controller.RegisterRoutes(mux2, ctrl2)
+	mux2.Handle("/mcp", mcpModule.Handler())
 	mux2.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
@@ -766,6 +769,242 @@ func TestCORSLocalhostOrigin(t *testing.T) {
 	}
 	if resp.Header.Get("Access-Control-Allow-Origin") != "http://localhost:4000" {
 		t.Errorf("Allow-Origin = %q, want http://localhost:4000", resp.Header.Get("Access-Control-Allow-Origin"))
+	}
+}
+
+// --- MCP helpers ---
+
+func mcpCall(t *testing.T, sessionID string, id int, method string, params any) map[string]any {
+	t.Helper()
+	payload := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"method":  method,
+	}
+	if params != nil {
+		payload["params"] = params
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req, _ := http.NewRequest(http.MethodPost, testServer.URL+"/mcp", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	if sessionID != "" {
+		req.Header.Set("Mcp-Session-Id", sessionID)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	rawBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Parse SSE: find "data: " line
+	for _, line := range strings.Split(string(rawBody), "\n") {
+		if strings.HasPrefix(line, "data: ") {
+			var result map[string]any
+			if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &result); err != nil {
+				t.Fatalf("unmarshal SSE data: %v\nraw: %s", err, line)
+			}
+			return result
+		}
+	}
+	t.Fatalf("no data: line in SSE response:\n%s", string(rawBody))
+	return nil
+}
+
+func mcpInit(t *testing.T) string {
+	t.Helper()
+	payload := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "initialize",
+		"params": map[string]any{
+			"protocolVersion": "2025-03-26",
+			"capabilities":    map[string]any{},
+			"clientInfo":      map[string]any{"name": "test", "version": "1.0"},
+		},
+	}
+	b, _ := json.Marshal(payload)
+	req, _ := http.NewRequest(http.MethodPost, testServer.URL+"/mcp", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	sessionID := resp.Header.Get("Mcp-Session-Id")
+	if sessionID == "" {
+		respBody, _ := io.ReadAll(resp.Body)
+		t.Fatalf("no Mcp-Session-Id in initialize response (status=%d, body=%s)", resp.StatusCode, string(respBody))
+	}
+	return sessionID
+}
+
+func mcpToolResult(t *testing.T, resp map[string]any) map[string]any {
+	t.Helper()
+	result := resp["result"].(map[string]any)
+	content := result["content"].([]any)
+	if len(content) == 0 {
+		t.Fatal("empty content in tool result")
+	}
+	first := content[0].(map[string]any)
+	if first["type"] == "text" {
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(first["text"].(string)), &parsed); err != nil {
+			t.Fatalf("unmarshal tool text: %v", err)
+		}
+		return parsed
+	}
+	return first
+}
+
+// --- MCP Tests ---
+
+func TestMCPInitialize(t *testing.T) {
+	sessionID := mcpInit(t)
+	if sessionID == "" {
+		t.Error("expected non-empty session ID")
+	}
+}
+
+func TestMCPToolsList(t *testing.T) {
+	sessionID := mcpInit(t)
+	resp := mcpCall(t, sessionID, 2, "tools/list", map[string]any{})
+	result := resp["result"].(map[string]any)
+	tools := result["tools"].([]any)
+
+	toolNames := map[string]bool{}
+	for _, tool := range tools {
+		name := tool.(map[string]any)["name"].(string)
+		toolNames[name] = true
+	}
+
+	for _, expected := range []string{"list_annotations", "get_annotation_image", "resolve_annotation"} {
+		if !toolNames[expected] {
+			t.Errorf("missing tool: %s", expected)
+		}
+	}
+}
+
+func TestMCPListAnnotations(t *testing.T) {
+	truncateTables(t)
+	seed(t, scenarios.AlphaAnnotation, scenarios.BetaAnnotation)
+
+	sessionID := mcpInit(t)
+
+	// List all
+	resp := mcpCall(t, sessionID, 2, "tools/call", map[string]any{
+		"name":      "list_annotations",
+		"arguments": map[string]any{},
+	})
+	result := mcpToolResult(t, resp)
+	if !result["ok"].(bool) {
+		t.Fatalf("expected ok=true, got: %v", result)
+	}
+	data := result["data"].(map[string]any)
+	annotations := data["annotations"].([]any)
+	if len(annotations) != 2 {
+		t.Errorf("expected 2 annotations, got %d", len(annotations))
+	}
+
+	// Filter by domain
+	resp = mcpCall(t, sessionID, 3, "tools/call", map[string]any{
+		"name":      "list_annotations",
+		"arguments": map[string]any{"domain": "alpha.example.com"},
+	})
+	result = mcpToolResult(t, resp)
+	data = result["data"].(map[string]any)
+	annotations = data["annotations"].([]any)
+	if len(annotations) != 1 {
+		t.Errorf("expected 1 annotation for domain filter, got %d", len(annotations))
+	}
+}
+
+func TestMCPResolveAnnotation(t *testing.T) {
+	truncateTables(t)
+	results := seed(t, scenarios.DefaultAnnotation)
+	id := resultID(t, results, scenarios.DefaultAnnotation)
+
+	sessionID := mcpInit(t)
+
+	// Resolve
+	resp := mcpCall(t, sessionID, 2, "tools/call", map[string]any{
+		"name": "resolve_annotation",
+		"arguments": map[string]any{
+			"annotation_id": id,
+			"metadata":      map[string]any{"commit": "abc123"},
+		},
+	})
+	result := mcpToolResult(t, resp)
+	if !result["ok"].(bool) {
+		t.Fatalf("expected ok=true, got: %v", result)
+	}
+	ann := result["data"].(map[string]any)
+	if ann["State"] != "resolved" {
+		t.Errorf("state = %v, want resolved", ann["State"])
+	}
+
+	// Resolve again — should error
+	resp = mcpCall(t, sessionID, 3, "tools/call", map[string]any{
+		"name": "resolve_annotation",
+		"arguments": map[string]any{
+			"annotation_id": id,
+		},
+	})
+	result = mcpToolResult(t, resp)
+	if result["ok"].(bool) {
+		t.Error("expected ok=false for already-resolved annotation")
+	}
+	if result["error"] != "annotation is already resolved" {
+		t.Errorf("error = %v, want 'annotation is already resolved'", result["error"])
+	}
+}
+
+func TestMCPGetImageNotFound(t *testing.T) {
+	truncateTables(t)
+	results := seed(t, scenarios.DefaultAnnotation)
+	id := resultID(t, results, scenarios.DefaultAnnotation)
+
+	sessionID := mcpInit(t)
+
+	// Get image for annotation without image
+	resp := mcpCall(t, sessionID, 2, "tools/call", map[string]any{
+		"name":      "get_annotation_image",
+		"arguments": map[string]any{"annotation_id": id},
+	})
+	result := mcpToolResult(t, resp)
+	if result["ok"].(bool) {
+		t.Error("expected ok=false for annotation without image")
+	}
+	if result["error"] != "image not found" {
+		t.Errorf("error = %v, want 'image not found'", result["error"])
+	}
+}
+
+func TestMCPInvalidUUID(t *testing.T) {
+	sessionID := mcpInit(t)
+
+	resp := mcpCall(t, sessionID, 2, "tools/call", map[string]any{
+		"name":      "get_annotation_image",
+		"arguments": map[string]any{"annotation_id": "not-a-uuid"},
+	})
+	result := mcpToolResult(t, resp)
+	if result["ok"].(bool) {
+		t.Error("expected ok=false for invalid UUID")
+	}
+	if result["error"] != "invalid annotation ID" {
+		t.Errorf("error = %v, want 'invalid annotation ID'", result["error"])
 	}
 }
 
