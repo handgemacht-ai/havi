@@ -1,0 +1,6 @@
+{
+  "manifest_version": 3,
+  "name": "Annotation Platform",
+  "version": "0.1.0",
+  "description": "Self-hosted annotation platform for developer teams"
+}

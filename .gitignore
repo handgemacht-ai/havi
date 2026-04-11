@@ -1,5 +1,26 @@
-
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db
 .beads-credential-key
+
+# Go
+server/cmd/server/server
+*.exe
+
+# Extension
+extension/web-ext-artifacts/
+
+# Environment
+.env
+!.env.example
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Slice artifacts
+.slice/
