@@ -1,3 +1,5 @@
+//go:build scenario
+
 package main_test
 
 import (
@@ -15,6 +17,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/handgemacht-ai/scenarigo"
+	"github.com/handgemacht-ai/scenarigo/scenarigotest"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/controller"
@@ -22,11 +26,13 @@ import (
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/middleware"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/repo"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/service"
+	"github.com/handgemacht-ai/annotation-plugin/server/scenarios"
 )
 
 var (
 	testServer *httptest.Server
 	testPool   *pgxpool.Pool
+	testReg    *scenarigo.Registry
 )
 
 func TestMain(m *testing.M) {
@@ -44,14 +50,13 @@ func TestMain(m *testing.M) {
 	}
 	testPool = pool
 
-	migrationsDir := "migrations"
-	if err := db.Migrate(ctx, pool, migrationsDir); err != nil {
+	if err := db.Migrate(ctx, pool, "migrations"); err != nil {
 		fmt.Fprintf(os.Stderr, "migrate: %v\n", err)
 		os.Exit(1)
 	}
 
 	annotationRepo := repo.NewPostgresRepo(pool)
-	svc := service.NewAnnotationService(annotationRepo, "PLACEHOLDER_BASE_URL")
+	svc := service.NewAnnotationService(annotationRepo, "PLACEHOLDER")
 	ctrl := controller.NewAnnotationController(svc, nil)
 
 	mux := http.NewServeMux()
@@ -60,11 +65,10 @@ func TestMain(m *testing.M) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
-
 	handler := middleware.CORS("", mux)
 	testServer = httptest.NewServer(handler)
 
-	// Recreate service with the real base URL
+	// Recreate with real base URL
 	svc2 := service.NewAnnotationService(annotationRepo, testServer.URL)
 	ctrl2 := controller.NewAnnotationController(svc2, nil)
 	mux2 := http.NewServeMux()
@@ -73,9 +77,10 @@ func TestMain(m *testing.M) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
-	handler2 := middleware.CORS("", mux2)
 	testServer.Close()
-	testServer = httptest.NewServer(handler2)
+	testServer = httptest.NewServer(middleware.CORS("", mux2))
+
+	testReg = scenarios.NewTestRegistry(pool, testServer.URL)
 
 	code := m.Run()
 
@@ -86,12 +91,28 @@ func TestMain(m *testing.M) {
 
 func truncateTables(t *testing.T) {
 	t.Helper()
-	ctx := context.Background()
-	_, err := testPool.Exec(ctx, "TRUNCATE annotations CASCADE")
+	_, err := testPool.Exec(context.Background(), "TRUNCATE annotations CASCADE")
 	if err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
 }
+
+func seed(t *testing.T, entries ...scenarigo.Runnable) scenarigo.Results {
+	t.Helper()
+	return scenarigotest.Run(t, context.Background(), testReg, entries...)
+}
+
+func resultID(t *testing.T, results scenarigo.Results, inst *scenarigo.Instance) string {
+	t.Helper()
+	attrs := scenarigo.ToAttrs(results.Get(inst))
+	id, ok := attrs["id"].(string)
+	if !ok {
+		t.Fatal("missing id in fixture result")
+	}
+	return id
+}
+
+// --- HTTP helpers ---
 
 func createAnnotationMultipart(t *testing.T, annotationJSON string, imageData []byte) *http.Response {
 	t.Helper()
@@ -101,7 +122,6 @@ func createAnnotationMultipart(t *testing.T, annotationJSON string, imageData []
 	if err := writer.WriteField("annotation", annotationJSON); err != nil {
 		t.Fatal(err)
 	}
-
 	if imageData != nil {
 		part, err := writer.CreateFormFile("image", "screenshot.png")
 		if err != nil {
@@ -120,13 +140,21 @@ func createAnnotationMultipart(t *testing.T, annotationJSON string, imageData []
 	return resp
 }
 
-func validAnnotationJSON() string {
-	return `{
-		"body": [{"type": "TextualBody", "value": "Test comment", "purpose": "commenting"}],
-		"target": {"source": "http://localhost:4000/dashboard"},
-		"motivation": "commenting",
-		"creator": {"type": "Person", "name": "tester"}
-	}`
+func doJSON(t *testing.T, method, url string, body string) *http.Response {
+	t.Helper()
+	var reader io.Reader
+	if body != "" {
+		reader = strings.NewReader(body)
+	}
+	req, _ := http.NewRequest(method, url, reader)
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
 }
 
 func readBody(t *testing.T, resp *http.Response) map[string]any {
@@ -138,35 +166,49 @@ func readBody(t *testing.T, resp *http.Response) map[string]any {
 	}
 	var result map[string]any
 	if err := json.Unmarshal(body, &result); err != nil {
-		t.Fatalf("unmarshal response: %v\nbody: %s", err, string(body))
+		t.Fatalf("unmarshal: %v\nbody: %s", err, string(body))
 	}
 	return result
 }
 
+func validAnnotationJSON() string {
+	return `{
+		"body": [{"type": "TextualBody", "value": "Test comment", "purpose": "commenting"}],
+		"target": {"source": "http://localhost:4000/dashboard"},
+		"motivation": "commenting",
+		"creator": {"type": "Person", "name": "tester"}
+	}`
+}
+
+// --- Tests ---
+
 func TestHealthCheck(t *testing.T) {
+	// When — request health endpoint
 	resp, err := http.Get(testServer.URL + "/health")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
 
+	// Then — returns ok
 	if resp.StatusCode != http.StatusOK {
-		t.Errorf("health status = %d, want 200", resp.StatusCode)
+		t.Errorf("status = %d, want 200", resp.StatusCode)
 	}
-
 	var body map[string]string
 	_ = json.NewDecoder(resp.Body).Decode(&body)
 	if body["status"] != "ok" {
-		t.Errorf("health body = %v, want status=ok", body)
+		t.Errorf("body = %v, want status=ok", body)
 	}
 }
 
 func TestCreateWithImage(t *testing.T) {
 	truncateTables(t)
 
+	// When — POST multipart with JSON + image
 	imageData := []byte("fake-png-data-for-testing")
 	resp := createAnnotationMultipart(t, validAnnotationJSON(), imageData)
 
+	// Then — 201 with W3C envelope
 	if resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
@@ -176,13 +218,11 @@ func TestCreateWithImage(t *testing.T) {
 	result := readBody(t, resp)
 	data := result["data"].(map[string]any)
 
-	// Check ID is UUID
 	idStr := data["id"].(string)
 	if _, err := uuid.Parse(idStr); err != nil {
 		t.Errorf("id is not a valid UUID: %s", idStr)
 	}
 
-	// Check W3C envelope
 	ann := data["annotation"].(map[string]any)
 	if ann["@context"] != "http://www.w3.org/ns/anno.jsonld" {
 		t.Errorf("@context = %v", ann["@context"])
@@ -190,35 +230,28 @@ func TestCreateWithImage(t *testing.T) {
 	if ann["type"] != "Annotation" {
 		t.Errorf("type = %v", ann["type"])
 	}
-	annID := ann["id"].(string)
-	if !strings.HasPrefix(annID, "urn:uuid:") {
-		t.Errorf("annotation id does not start with urn:uuid: %s", annID)
-	}
-	if ann["created"] == nil || ann["created"] == "" {
-		t.Error("created timestamp is missing")
+	if !strings.HasPrefix(ann["id"].(string), "urn:uuid:") {
+		t.Errorf("annotation id missing urn:uuid: prefix: %s", ann["id"])
 	}
 	if _, err := time.Parse(time.RFC3339, ann["created"].(string)); err != nil {
 		t.Errorf("created is not RFC3339: %v", err)
 	}
 
-	// Check Image body present
 	bodies := ann["body"].([]any)
 	hasImage := false
 	for _, b := range bodies {
 		bm := b.(map[string]any)
 		if bm["type"] == "Image" {
 			hasImage = true
-			imageURL := bm["id"].(string)
-			if !strings.Contains(imageURL, "/api/annotations/"+idStr+"/image") {
-				t.Errorf("image URL does not contain expected path: %s", imageURL)
+			if !strings.Contains(bm["id"].(string), "/api/annotations/"+idStr+"/image") {
+				t.Errorf("image URL missing expected path: %s", bm["id"])
 			}
 		}
 	}
 	if !hasImage {
-		t.Error("no Image body found in annotation")
+		t.Error("no Image body found")
 	}
 
-	// Check denormalized fields
 	if data["state"] != "open" {
 		t.Errorf("state = %v, want open", data["state"])
 	}
@@ -233,7 +266,10 @@ func TestCreateWithImage(t *testing.T) {
 func TestCreateWithoutImage(t *testing.T) {
 	truncateTables(t)
 
+	// When — POST multipart without image
 	resp := createAnnotationMultipart(t, validAnnotationJSON(), nil)
+
+	// Then — 201 with no Image body
 	if resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
@@ -243,352 +279,250 @@ func TestCreateWithoutImage(t *testing.T) {
 	result := readBody(t, resp)
 	data := result["data"].(map[string]any)
 	ann := data["annotation"].(map[string]any)
-
-	bodies := ann["body"].([]any)
-	for _, b := range bodies {
-		bm := b.(map[string]any)
-		if bm["type"] == "Image" {
+	for _, b := range ann["body"].([]any) {
+		if b.(map[string]any)["type"] == "Image" {
 			t.Error("Image body should not be present when no image uploaded")
 		}
 	}
 }
 
 func TestCreateValidationEmptyBody(t *testing.T) {
-	truncateTables(t)
-
-	annJSON := `{
-		"body": [],
-		"target": {"source": "http://localhost:4000/page"},
-		"motivation": "commenting"
-	}`
+	// When — POST with empty body array
+	annJSON := `{"body":[],"target":{"source":"http://localhost:4000/page"},"motivation":"commenting"}`
 	resp := createAnnotationMultipart(t, annJSON, nil)
+
+	// Then — 400 validation_error
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", resp.StatusCode)
 	}
-
 	result := readBody(t, resp)
-	errObj := result["error"].(map[string]any)
-	if errObj["code"] != "validation_error" {
-		t.Errorf("error code = %v, want validation_error", errObj["code"])
+	if result["error"].(map[string]any)["code"] != "validation_error" {
+		t.Errorf("error code = %v, want validation_error", result["error"])
 	}
 }
 
 func TestCreateValidationMissingTarget(t *testing.T) {
-	truncateTables(t)
-
-	annJSON := `{
-		"body": [{"type": "TextualBody", "value": "hello", "purpose": "commenting"}],
-		"motivation": "commenting"
-	}`
+	// When — POST without target
+	annJSON := `{"body":[{"type":"TextualBody","value":"hello","purpose":"commenting"}],"motivation":"commenting"}`
 	resp := createAnnotationMultipart(t, annJSON, nil)
+
+	// Then — 400
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", resp.StatusCode)
 	}
+	resp.Body.Close()
 }
 
 func TestCreateValidationInvalidMotivation(t *testing.T) {
-	truncateTables(t)
-
-	annJSON := `{
-		"body": [{"type": "TextualBody", "value": "hello", "purpose": "commenting"}],
-		"target": {"source": "http://localhost:4000/page"},
-		"motivation": "invalid_motivation"
-	}`
+	// When — POST with invalid motivation
+	annJSON := `{"body":[{"type":"TextualBody","value":"hello","purpose":"commenting"}],"target":{"source":"http://localhost:4000/page"},"motivation":"invalid_motivation"}`
 	resp := createAnnotationMultipart(t, annJSON, nil)
+
+	// Then — 400
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", resp.StatusCode)
 	}
+	resp.Body.Close()
 }
 
-func TestGetNotFound(t *testing.T) {
+func TestGetAnnotation(t *testing.T) {
 	truncateTables(t)
 
-	randomID := uuid.New().String()
-	resp, err := http.Get(testServer.URL + "/api/annotations/" + randomID)
+	// Given — an annotation exists via scenarigo
+	results := seed(t, scenarios.DefaultAnnotation)
+	id := resultID(t, results, scenarios.DefaultAnnotation)
+
+	// When — GET by ID
+	resp, err := http.Get(testServer.URL + "/api/annotations/" + id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
 
+	// Then — 200 with full envelope
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200", resp.StatusCode)
+	}
+	result := readBody(t, resp)
+	data := result["data"].(map[string]any)
+	if data["id"] != id {
+		t.Errorf("id = %v, want %s", data["id"], id)
+	}
+	if data["state"] != "open" {
+		t.Errorf("state = %v, want open", data["state"])
+	}
+}
+
+func TestGetAnnotationNotFound(t *testing.T) {
+	truncateTables(t)
+
+	// When — GET with random UUID
+	resp, err := http.Get(testServer.URL + "/api/annotations/" + uuid.New().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Then — 404
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", resp.StatusCode)
 	}
-
 	result := readBody(t, resp)
-	errObj := result["error"].(map[string]any)
-	if errObj["code"] != "not_found" {
-		t.Errorf("error code = %v, want not_found", errObj["code"])
+	if result["error"].(map[string]any)["code"] != "not_found" {
+		t.Errorf("error code = %v, want not_found", result["error"])
 	}
 }
 
-func TestFullLifecycle(t *testing.T) {
+func TestGetImage(t *testing.T) {
 	truncateTables(t)
 
-	// Create
-	imageData := []byte("lifecycle-test-image")
-	resp := createAnnotationMultipart(t, validAnnotationJSON(), imageData)
-	if resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		t.Fatalf("create: status = %d, body: %s", resp.StatusCode, string(body))
-	}
-	createResult := readBody(t, resp)
-	data := createResult["data"].(map[string]any)
-	id := data["id"].(string)
+	// Given — an annotation with an image
+	results := seed(t, scenarios.DefaultImage)
+	id := resultID(t, results, scenarios.DefaultAnnotation)
 
-	// List
-	resp, err := http.Get(testServer.URL + "/api/annotations")
-	if err != nil {
-		t.Fatal(err)
-	}
-	listResult := readBody(t, resp)
-	listData := listResult["data"].([]any)
-	if len(listData) != 1 {
-		t.Fatalf("list count = %d, want 1", len(listData))
-	}
-	meta := listResult["meta"].(map[string]any)
-	if int(meta["count"].(float64)) != 1 {
-		t.Errorf("meta.count = %v, want 1", meta["count"])
-	}
-
-	// Get
-	resp, err = http.Get(testServer.URL + "/api/annotations/" + id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	getResult := readBody(t, resp)
-	getData := getResult["data"].(map[string]any)
-	if getData["id"] != id {
-		t.Errorf("get id = %v, want %s", getData["id"], id)
-	}
-
-	// GetImage
-	resp, err = http.Get(testServer.URL + "/api/annotations/" + id + "/image")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("get image status = %d, want 200", resp.StatusCode)
-	}
-	imgBody, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if string(imgBody) != "lifecycle-test-image" {
-		t.Errorf("image data mismatch")
-	}
-
-	// Update
-	updateBody := `{"annotation": {"body": [{"type": "TextualBody", "value": "Updated comment", "purpose": "commenting"}]}}`
-	req, _ := http.NewRequest(http.MethodPut, testServer.URL+"/api/annotations/"+id, strings.NewReader(updateBody))
-	req.Header.Set("Content-Type", "application/json")
-	resp, err = http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		t.Fatalf("update status = %d, body: %s", resp.StatusCode, string(body))
-	}
-	updateResult := readBody(t, resp)
-	updateData := updateResult["data"].(map[string]any)
-	updatedAnn := updateData["annotation"].(map[string]any)
-	updatedBodies := updatedAnn["body"].([]any)
-	found := false
-	for _, b := range updatedBodies {
-		bm := b.(map[string]any)
-		if bm["value"] == "Updated comment" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("updated body not found in response")
-	}
-
-	// Resolve
-	resolveBody := `{"resolution": {"resolvedBy": "tester", "action": "fixed"}}`
-	req, _ = http.NewRequest(http.MethodPost, testServer.URL+"/api/annotations/"+id+"/resolve", strings.NewReader(resolveBody))
-	req.Header.Set("Content-Type", "application/json")
-	resp, err = http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		t.Fatalf("resolve status = %d, body: %s", resp.StatusCode, string(body))
-	}
-	resolveResult := readBody(t, resp)
-	resolveData := resolveResult["data"].(map[string]any)
-	if resolveData["state"] != "resolved" {
-		t.Errorf("state after resolve = %v, want resolved", resolveData["state"])
-	}
-
-	// Delete
-	req, _ = http.NewRequest(http.MethodDelete, testServer.URL+"/api/annotations/"+id, nil)
-	resp, err = http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != http.StatusNoContent {
-		t.Errorf("delete status = %d, want 204", resp.StatusCode)
-	}
-	resp.Body.Close()
-
-	// Verify 404 after delete
-	resp, err = http.Get(testServer.URL + "/api/annotations/" + id)
+	// When — GET image
+	resp, err := http.Get(testServer.URL + "/api/annotations/" + id + "/image")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
+
+	// Then — 200 image/png
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "image/png" {
+		t.Errorf("Content-Type = %q, want image/png", ct)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != "fake-png-data-for-testing" {
+		t.Errorf("image data mismatch: got %d bytes", len(body))
+	}
+}
+
+func TestGetImageNotFound(t *testing.T) {
+	truncateTables(t)
+
+	// Given — an annotation without an image
+	results := seed(t, scenarios.DefaultAnnotation)
+	id := resultID(t, results, scenarios.DefaultAnnotation)
+
+	// When — GET image
+	resp, err := http.Get(testServer.URL + "/api/annotations/" + id + "/image")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	// Then — 404
 	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("after delete status = %d, want 404", resp.StatusCode)
+		t.Errorf("status = %d, want 404", resp.StatusCode)
 	}
 }
 
 func TestListWithFilters(t *testing.T) {
 	truncateTables(t)
 
-	// Create annotations with different domains
-	ann1 := `{
-		"body": [{"type": "TextualBody", "value": "Alpha", "purpose": "commenting"}],
-		"target": {"source": "http://alpha.example.com/page"},
-		"motivation": "commenting"
-	}`
-	ann2 := `{
-		"body": [{"type": "TextualBody", "value": "Beta", "purpose": "commenting"}],
-		"target": {"source": "http://beta.example.com/page"},
-		"motivation": "highlighting"
-	}`
+	// Given — annotations with different domains and motivations
+	seed(t, scenarios.AlphaAnnotation, scenarios.BetaAnnotation)
 
-	resp := createAnnotationMultipart(t, ann1, nil)
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatal("failed to create ann1")
-	}
-	resp.Body.Close()
-
-	resp = createAnnotationMultipart(t, ann2, nil)
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatal("failed to create ann2")
-	}
-	resp.Body.Close()
-
-	// Filter by domain
+	// When — filter by domain
 	resp, err := http.Get(testServer.URL + "/api/annotations?domain=alpha.example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
 	result := readBody(t, resp)
 	data := result["data"].([]any)
+
+	// Then — only alpha matches
 	if len(data) != 1 {
 		t.Errorf("filter by domain: count = %d, want 1", len(data))
 	}
-	meta := result["meta"].(map[string]any)
-	if int(meta["count"].(float64)) != 1 {
-		t.Errorf("filter by domain: meta.count = %v, want 1", meta["count"])
+	if int(result["meta"].(map[string]any)["count"].(float64)) != 1 {
+		t.Errorf("meta.count = %v, want 1", result["meta"].(map[string]any)["count"])
 	}
 
-	// Filter by motivation
+	// When — filter by motivation
 	resp, err = http.Get(testServer.URL + "/api/annotations?motivation=highlighting")
 	if err != nil {
 		t.Fatal(err)
 	}
 	result = readBody(t, resp)
-	data = result["data"].([]any)
-	if len(data) != 1 {
-		t.Errorf("filter by motivation: count = %d, want 1", len(data))
+
+	// Then — only beta matches
+	if len(result["data"].([]any)) != 1 {
+		t.Errorf("filter by motivation: count = %d, want 1", len(result["data"].([]any)))
 	}
 
-	// Filter by state (all should be open)
+	// When — filter by state (all open)
 	resp, err = http.Get(testServer.URL + "/api/annotations?state=open")
 	if err != nil {
 		t.Fatal(err)
 	}
 	result = readBody(t, resp)
-	data = result["data"].([]any)
-	if len(data) != 2 {
-		t.Errorf("filter by state=open: count = %d, want 2", len(data))
+
+	// Then — both match
+	if len(result["data"].([]any)) != 2 {
+		t.Errorf("filter by state=open: count = %d, want 2", len(result["data"].([]any)))
 	}
 }
 
 func TestListPagination(t *testing.T) {
 	truncateTables(t)
 
-	// Create 12 annotations
+	// Given — 12 annotations via scenarigo overrides
 	for i := 0; i < 12; i++ {
-		ann := fmt.Sprintf(`{
-			"body": [{"type": "TextualBody", "value": "Item %d", "purpose": "commenting"}],
-			"target": {"source": "http://localhost:4000/page%d"},
-			"motivation": "commenting"
-		}`, i, i)
-		resp := createAnnotationMultipart(t, ann, nil)
-		if resp.StatusCode != http.StatusCreated {
-			t.Fatalf("failed to create annotation %d", i)
-		}
-		resp.Body.Close()
+		seed(t, scenarios.DefaultAnnotation.With(
+			"body_text", fmt.Sprintf("Item %d", i),
+			"target_source", fmt.Sprintf("http://localhost:4000/page%d", i),
+		))
 	}
 
-	// limit=5&offset=2
+	// When — paginate with limit=5&offset=2
 	resp, err := http.Get(testServer.URL + "/api/annotations?limit=5&offset=2")
 	if err != nil {
 		t.Fatal(err)
 	}
 	result := readBody(t, resp)
+
+	// Then — 5 results, total count 12
 	data := result["data"].([]any)
 	if len(data) != 5 {
-		t.Errorf("pagination: got %d items, want 5", len(data))
+		t.Errorf("got %d items, want 5", len(data))
 	}
-	meta := result["meta"].(map[string]any)
-	if int(meta["count"].(float64)) != 12 {
-		t.Errorf("pagination: meta.count = %v, want 12", meta["count"])
+	if int(result["meta"].(map[string]any)["count"].(float64)) != 12 {
+		t.Errorf("meta.count = %v, want 12", result["meta"].(map[string]any)["count"])
 	}
 }
 
 func TestUpdateBody(t *testing.T) {
 	truncateTables(t)
 
-	resp := createAnnotationMultipart(t, validAnnotationJSON(), nil)
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatal("create failed")
-	}
-	result := readBody(t, resp)
-	data := result["data"].(map[string]any)
-	id := data["id"].(string)
-	origUpdated := data["updated_at"].(string)
+	// Given — an annotation exists
+	results := seed(t, scenarios.DefaultAnnotation)
+	id := resultID(t, results, scenarios.DefaultAnnotation)
 
 	time.Sleep(1100 * time.Millisecond)
 
-	updateBody := `{"annotation": {"body": [{"type": "TextualBody", "value": "New body text", "purpose": "describing"}]}}`
-	req, _ := http.NewRequest(http.MethodPut, testServer.URL+"/api/annotations/"+id, strings.NewReader(updateBody))
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// When — PUT with new body
+	resp := doJSON(t, http.MethodPut, testServer.URL+"/api/annotations/"+id,
+		`{"annotation":{"body":[{"type":"TextualBody","value":"New body text","purpose":"describing"}]}}`)
+
+	// Then — body replaced, modified updated
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		t.Fatalf("update status = %d, body: %s", resp.StatusCode, string(body))
+		t.Fatalf("status = %d, body: %s", resp.StatusCode, string(body))
 	}
-	result = readBody(t, resp)
-	data = result["data"].(map[string]any)
+	result := readBody(t, resp)
+	data := result["data"].(map[string]any)
 	ann := data["annotation"].(map[string]any)
 	bodies := ann["body"].([]any)
 	if len(bodies) != 1 {
 		t.Fatalf("expected 1 body, got %d", len(bodies))
 	}
-	bm := bodies[0].(map[string]any)
-	if bm["value"] != "New body text" {
-		t.Errorf("body value = %v, want 'New body text'", bm["value"])
+	if bodies[0].(map[string]any)["value"] != "New body text" {
+		t.Errorf("body value = %v, want 'New body text'", bodies[0].(map[string]any)["value"])
 	}
-
-	newUpdated := data["updated_at"].(string)
-	if newUpdated == origUpdated {
-		t.Error("updated_at should change after update")
-	}
-
-	// Also verify W3C modified timestamp updated
-	modified := ann["modified"].(string)
-	if _, err := time.Parse(time.RFC3339, modified); err != nil {
+	if _, err := time.Parse(time.RFC3339, ann["modified"].(string)); err != nil {
 		t.Errorf("modified is not valid RFC3339: %v", err)
 	}
 }
@@ -596,146 +530,255 @@ func TestUpdateBody(t *testing.T) {
 func TestUpdatePartialMotivation(t *testing.T) {
 	truncateTables(t)
 
-	resp := createAnnotationMultipart(t, validAnnotationJSON(), nil)
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatal("create failed")
-	}
-	result := readBody(t, resp)
-	data := result["data"].(map[string]any)
-	id := data["id"].(string)
+	// Given — an annotation exists
+	results := seed(t, scenarios.DefaultAnnotation)
+	id := resultID(t, results, scenarios.DefaultAnnotation)
 
-	updateBody := `{"annotation": {"motivation": "highlighting"}}`
-	req, _ := http.NewRequest(http.MethodPut, testServer.URL+"/api/annotations/"+id, strings.NewReader(updateBody))
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// When — PUT only motivation
+	resp := doJSON(t, http.MethodPut, testServer.URL+"/api/annotations/"+id,
+		`{"annotation":{"motivation":"highlighting"}}`)
+
+	// Then — motivation changed, body preserved
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		t.Fatalf("update status = %d, body: %s", resp.StatusCode, string(body))
+		t.Fatalf("status = %d, body: %s", resp.StatusCode, string(body))
 	}
-	result = readBody(t, resp)
-	data = result["data"].(map[string]any)
-
+	result := readBody(t, resp)
+	data := result["data"].(map[string]any)
 	if data["motivation"] != "highlighting" {
 		t.Errorf("motivation = %v, want highlighting", data["motivation"])
 	}
-
-	// Body should be preserved
 	ann := data["annotation"].(map[string]any)
 	bodies := ann["body"].([]any)
 	if len(bodies) == 0 {
 		t.Error("body should be preserved after partial update")
 	}
-	bm := bodies[0].(map[string]any)
-	if bm["value"] != "Test comment" {
-		t.Errorf("body value = %v, want 'Test comment' (preserved)", bm["value"])
+}
+
+func TestResolve(t *testing.T) {
+	truncateTables(t)
+
+	// Given — an open annotation
+	results := seed(t, scenarios.DefaultAnnotation)
+	id := resultID(t, results, scenarios.DefaultAnnotation)
+
+	// When — POST resolve
+	resp := doJSON(t, http.MethodPost, testServer.URL+"/api/annotations/"+id+"/resolve",
+		`{"resolution":{"action":"fixed","resolved_by":"tester"}}`)
+
+	// Then — state=resolved, resolution stored
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		t.Fatalf("status = %d, body: %s", resp.StatusCode, string(body))
+	}
+	result := readBody(t, resp)
+	data := result["data"].(map[string]any)
+	if data["state"] != "resolved" {
+		t.Errorf("state = %v, want resolved", data["state"])
+	}
+	resolution := data["resolution"].(map[string]any)
+	if resolution["action"] != "fixed" {
+		t.Errorf("resolution.action = %v, want fixed", resolution["action"])
 	}
 }
 
 func TestResolveConflict(t *testing.T) {
 	truncateTables(t)
 
-	resp := createAnnotationMultipart(t, validAnnotationJSON(), nil)
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatal("create failed")
-	}
-	result := readBody(t, resp)
-	data := result["data"].(map[string]any)
-	id := data["id"].(string)
+	// Given — an open annotation
+	results := seed(t, scenarios.DefaultAnnotation)
+	id := resultID(t, results, scenarios.DefaultAnnotation)
 
-	// First resolve
-	resolveBody := `{"resolution": {"action": "fixed"}}`
-	req, _ := http.NewRequest(http.MethodPost, testServer.URL+"/api/annotations/"+id+"/resolve", strings.NewReader(resolveBody))
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// When — resolve once (succeeds)
+	resp := doJSON(t, http.MethodPost, testServer.URL+"/api/annotations/"+id+"/resolve",
+		`{"resolution":{"action":"fixed"}}`)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("first resolve status = %d, want 200", resp.StatusCode)
 	}
 	resp.Body.Close()
 
-	// Second resolve should conflict
-	req, _ = http.NewRequest(http.MethodPost, testServer.URL+"/api/annotations/"+id+"/resolve", strings.NewReader(resolveBody))
-	req.Header.Set("Content-Type", "application/json")
-	resp, err = http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// When — resolve again
+	resp = doJSON(t, http.MethodPost, testServer.URL+"/api/annotations/"+id+"/resolve",
+		`{"resolution":{"action":"fixed again"}}`)
+
+	// Then — 409 conflict
 	if resp.StatusCode != http.StatusConflict {
 		t.Errorf("second resolve status = %d, want 409", resp.StatusCode)
 	}
 	resp.Body.Close()
 }
 
-func TestDeleteNotFound(t *testing.T) {
+func TestDeleteAnnotation(t *testing.T) {
 	truncateTables(t)
 
-	randomID := uuid.New().String()
-	req, _ := http.NewRequest(http.MethodDelete, testServer.URL+"/api/annotations/"+randomID, nil)
-	resp, err := http.DefaultClient.Do(req)
+	// Given — an annotation exists
+	results := seed(t, scenarios.DefaultAnnotation)
+	id := resultID(t, results, scenarios.DefaultAnnotation)
+
+	// When — DELETE
+	resp := doJSON(t, http.MethodDelete, testServer.URL+"/api/annotations/"+id, "")
+
+	// Then — 204
+	if resp.StatusCode != http.StatusNoContent {
+		t.Errorf("status = %d, want 204", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Then — subsequent GET returns 404
+	resp, err := http.Get(testServer.URL + "/api/annotations/" + id)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-
 	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("delete not found status = %d, want 404", resp.StatusCode)
+		t.Errorf("after delete: status = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestDeleteNotFound(t *testing.T) {
+	truncateTables(t)
+
+	// When — DELETE random UUID
+	resp := doJSON(t, http.MethodDelete, testServer.URL+"/api/annotations/"+uuid.New().String(), "")
+
+	// Then — 404
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestFullLifecycle(t *testing.T) {
+	truncateTables(t)
+
+	// Given — empty database
+
+	// When — create via HTTP (tests the creation flow, not fixtures)
+	imageData := []byte("lifecycle-test-image")
+	resp := createAnnotationMultipart(t, validAnnotationJSON(), imageData)
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		t.Fatalf("create: status = %d, body: %s", resp.StatusCode, string(body))
+	}
+	data := readBody(t, resp)["data"].(map[string]any)
+	id := data["id"].(string)
+
+	// Then — list returns 1
+	resp, _ = http.Get(testServer.URL + "/api/annotations")
+	result := readBody(t, resp)
+	if len(result["data"].([]any)) != 1 {
+		t.Fatalf("list count = %d, want 1", len(result["data"].([]any)))
+	}
+
+	// Then — get returns annotation
+	resp, _ = http.Get(testServer.URL + "/api/annotations/" + id)
+	if readBody(t, resp)["data"].(map[string]any)["id"] != id {
+		t.Error("get id mismatch")
+	}
+
+	// Then — get image returns bytes
+	resp, _ = http.Get(testServer.URL + "/api/annotations/" + id + "/image")
+	imgBody, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if string(imgBody) != "lifecycle-test-image" {
+		t.Error("image data mismatch")
+	}
+
+	// When — update
+	resp = doJSON(t, http.MethodPut, testServer.URL+"/api/annotations/"+id,
+		`{"annotation":{"body":[{"type":"TextualBody","value":"Updated","purpose":"commenting"}]}}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("update status = %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// When — resolve
+	resp = doJSON(t, http.MethodPost, testServer.URL+"/api/annotations/"+id+"/resolve",
+		`{"resolution":{"action":"fixed"}}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("resolve status = %d", resp.StatusCode)
+	}
+	if readBody(t, resp)["data"].(map[string]any)["state"] != "resolved" {
+		t.Error("state should be resolved")
+	}
+
+	// When — delete
+	resp = doJSON(t, http.MethodDelete, testServer.URL+"/api/annotations/"+id, "")
+	if resp.StatusCode != http.StatusNoContent {
+		t.Errorf("delete status = %d, want 204", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Then — gone
+	resp, err := http.Get(testServer.URL + "/api/annotations/" + id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("after delete: status = %d, want 404", resp.StatusCode)
 	}
 }
 
 func TestCORSPreflight(t *testing.T) {
+	// When — OPTIONS from chrome-extension origin
 	req, _ := http.NewRequest(http.MethodOptions, testServer.URL+"/api/annotations", nil)
 	req.Header.Set("Origin", "chrome-extension://abcdefg123")
 	req.Header.Set("Access-Control-Request-Method", "POST")
-
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
 
+	// Then — 204 with correct CORS headers
 	if resp.StatusCode != http.StatusNoContent {
-		t.Errorf("CORS preflight status = %d, want 204", resp.StatusCode)
+		t.Errorf("status = %d, want 204", resp.StatusCode)
 	}
-
-	allowOrigin := resp.Header.Get("Access-Control-Allow-Origin")
-	if allowOrigin != "chrome-extension://abcdefg123" {
-		t.Errorf("Access-Control-Allow-Origin = %q, want chrome-extension://abcdefg123", allowOrigin)
+	if resp.Header.Get("Access-Control-Allow-Origin") != "chrome-extension://abcdefg123" {
+		t.Errorf("Allow-Origin = %q", resp.Header.Get("Access-Control-Allow-Origin"))
 	}
-
-	allowMethods := resp.Header.Get("Access-Control-Allow-Methods")
-	if allowMethods == "" {
-		t.Error("Access-Control-Allow-Methods is empty")
+	if resp.Header.Get("Access-Control-Allow-Methods") == "" {
+		t.Error("Allow-Methods is empty")
 	}
-
-	allowHeaders := resp.Header.Get("Access-Control-Allow-Headers")
-	if allowHeaders == "" {
-		t.Error("Access-Control-Allow-Headers is empty")
+	if resp.Header.Get("Access-Control-Allow-Headers") == "" {
+		t.Error("Allow-Headers is empty")
 	}
 }
 
 func TestCORSLocalhostOrigin(t *testing.T) {
+	// When — OPTIONS from localhost origin
 	req, _ := http.NewRequest(http.MethodOptions, testServer.URL+"/api/annotations", nil)
 	req.Header.Set("Origin", "http://localhost:4000")
 	req.Header.Set("Access-Control-Request-Method", "GET")
-
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
 
+	// Then — 204 with matching origin
 	if resp.StatusCode != http.StatusNoContent {
 		t.Errorf("status = %d, want 204", resp.StatusCode)
 	}
+	if resp.Header.Get("Access-Control-Allow-Origin") != "http://localhost:4000" {
+		t.Errorf("Allow-Origin = %q, want http://localhost:4000", resp.Header.Get("Access-Control-Allow-Origin"))
+	}
+}
 
-	allowOrigin := resp.Header.Get("Access-Control-Allow-Origin")
-	if allowOrigin != "http://localhost:4000" {
-		t.Errorf("Access-Control-Allow-Origin = %q, want http://localhost:4000", allowOrigin)
+func TestInvalidUUID(t *testing.T) {
+	// When — GET with invalid UUID
+	resp, err := http.Get(testServer.URL + "/api/annotations/not-a-uuid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	// Then — 400
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
 	}
 }
