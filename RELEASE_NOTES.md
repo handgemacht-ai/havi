@@ -2,6 +2,16 @@
 
 ## 2026-04-11
 
+### MCP Server for Annotation Platform (ann-bgn)
+
+Claude Code can now query, view, and resolve annotations programmatically via MCP:
+
+- **list_annotations** — list and filter annotations by domain, worktree, branch, state, motivation, creator
+- **get_annotation_image** — retrieve annotation screenshots as base64-encoded images
+- **resolve_annotation** — mark annotations as resolved with metadata (commit hash, PR number)
+- **Auto-discovery** — `.mcp.json` at project root connects Claude Code to the server automatically
+- **HTTP Streamable transport** — MCP endpoint at `/mcp` using go-sdk v1.5.0
+
 ### Extension Core Capture UX (ann-2tl)
 
 A Chrome extension that lets developers capture visual annotations from any web page:
