@@ -64,5 +64,5 @@ SQL columns are denormalized copies for indexed queries only.
 
 - `resolution` JSONB accepts arbitrary metadata for future integrations
 - `describing` motivation bodies carry machine-generated context (console, network, vitals)
-- Hook system populates `project`, `worktree`, `branch` via `/__annotation_context` endpoint
+- Hook system (planned) can populate `project`, `worktree`, `branch` via a dev server endpoint
 - Webhook on create enables channel server integration
