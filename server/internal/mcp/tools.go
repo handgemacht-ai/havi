@@ -13,24 +13,24 @@ import (
 )
 
 type listInput struct {
-	Domain     string `json:"domain,omitempty" jsonschema:"description=Filter by domain (e.g. localhost:4000)"`
-	Worktree   string `json:"worktree,omitempty" jsonschema:"description=Filter by worktree name"`
-	Branch     string `json:"branch,omitempty" jsonschema:"description=Filter by git branch"`
-	State      string `json:"state,omitempty" jsonschema:"description=Filter by state (open or resolved)"`
-	Motivation string `json:"motivation,omitempty" jsonschema:"description=Filter by motivation (commenting highlighting describing)"`
-	Viewport   string `json:"viewport,omitempty" jsonschema:"description=Filter by viewport dimensions"`
-	Creator    string `json:"creator,omitempty" jsonschema:"description=Filter by creator name"`
-	Limit      int    `json:"limit,omitempty" jsonschema:"description=Max results (1-200 default 50)"`
-	Offset     int    `json:"offset,omitempty" jsonschema:"description=Pagination offset"`
+	Domain     string `json:"domain,omitempty" jsonschema:"Filter by domain (e.g. localhost:4000)"`
+	Worktree   string `json:"worktree,omitempty" jsonschema:"Filter by worktree name"`
+	Branch     string `json:"branch,omitempty" jsonschema:"Filter by git branch"`
+	State      string `json:"state,omitempty" jsonschema:"Filter by state (open or resolved)"`
+	Motivation string `json:"motivation,omitempty" jsonschema:"Filter by motivation (commenting highlighting describing)"`
+	Viewport   string `json:"viewport,omitempty" jsonschema:"Filter by viewport dimensions"`
+	Creator    string `json:"creator,omitempty" jsonschema:"Filter by creator name"`
+	Limit      int    `json:"limit,omitempty" jsonschema:"Max results (1-200 default 50)"`
+	Offset     int    `json:"offset,omitempty" jsonschema:"Pagination offset"`
 }
 
 type imageInput struct {
-	AnnotationID string `json:"annotation_id" jsonschema:"required,description=UUID of the annotation"`
+	AnnotationID string `json:"annotation_id" jsonschema:"UUID of the annotation"`
 }
 
 type resolveInput struct {
-	AnnotationID string         `json:"annotation_id" jsonschema:"required,description=UUID of the annotation"`
-	Metadata     map[string]any `json:"metadata,omitempty" jsonschema:"description=Resolution metadata (e.g. commit hash)"`
+	AnnotationID string         `json:"annotation_id" jsonschema:"UUID of the annotation"`
+	Metadata     map[string]any `json:"metadata,omitempty" jsonschema:"Resolution metadata (e.g. commit hash)"`
 }
 
 func registerTools(server *mcp.Server, svc *service.AnnotationService) {
