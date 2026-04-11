@@ -4,13 +4,14 @@
   "version": "0.1.0",
   "description": "Self-hosted annotation platform for developer teams",
   "permissions": ["activeTab", "sidePanel", "storage", "scripting"],
-  "host_permissions": ["http://localhost:*/", "http://127.0.0.1:*/"],
+  "host_permissions": ["<all_urls>"],
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
       "js": [
         "assets/fabric.min.js",
         "assets/cropper.min.js",
+        "assets/css-selector-generator.min.js",
         "src/content/content.js"
       ],
       "css": [

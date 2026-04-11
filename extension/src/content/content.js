@@ -17,6 +17,9 @@
   let drawShape = null;
   let toolbar = null;
   let hasMarkup = false;
+  let pickerHighlight = null;
+  let pickerDataUrl = null;
+  let selectedCssSelector = null;
 
   const COLORS = [
     { name: 'Red', value: '#FF0000' },
@@ -48,8 +51,17 @@
       return;
     }
     if (message.type === 'start-capture' && state === 'idle') {
+      console.log('[annotation] start-capture received, dataUrl length:', message.dataUrl?.length);
       setState('capturing');
       initRegionSelection(message.dataUrl);
+    }
+    if (message.type === 'start-pick-element' && state === 'idle') {
+      setState('picking');
+      pickerDataUrl = message.dataUrl;
+      initElementPicker();
+    }
+    if (message.type === 'cancel-capture' && state !== 'idle') {
+      cancelCapture();
     }
   });
 
@@ -188,6 +200,117 @@
     initMarkup(captureData);
   }
 
+  // --- Phase: Element Picker ---
+
+  function initElementPicker() {
+    container = document.createElement('div');
+    container.className = 'ann-picker-container';
+
+    pickerHighlight = document.createElement('div');
+    pickerHighlight.className = 'ann-picker-highlight';
+    container.appendChild(pickerHighlight);
+
+    var hint = document.createElement('div');
+    hint.className = 'ann-picker-hint';
+    hint.textContent = 'Click an element to annotate it \u2014 Esc to cancel';
+    container.appendChild(hint);
+
+    document.documentElement.appendChild(container);
+
+    container.addEventListener('mousemove', onPickerMouseMove, true);
+    container.addEventListener('click', onPickerClick, true);
+  }
+
+  function getElementBeneathOverlay(clientX, clientY) {
+    container.style.pointerEvents = 'none';
+    var el = document.elementFromPoint(clientX, clientY);
+    container.style.pointerEvents = '';
+    if (!el || el === document.documentElement || el === document.body) return null;
+    if (el.closest('.ann-picker-container') || el.closest('.ann-overlay-container')) return null;
+    return el;
+  }
+
+  function onPickerMouseMove(e) {
+    var target = getElementBeneathOverlay(e.clientX, e.clientY);
+    if (!target) {
+      pickerHighlight.style.display = 'none';
+      return;
+    }
+    var rect = target.getBoundingClientRect();
+    pickerHighlight.style.display = 'block';
+    pickerHighlight.style.left = rect.left + 'px';
+    pickerHighlight.style.top = rect.top + 'px';
+    pickerHighlight.style.width = rect.width + 'px';
+    pickerHighlight.style.height = rect.height + 'px';
+  }
+
+  function onPickerClick(e) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    var target = getElementBeneathOverlay(e.clientX, e.clientY);
+    if (!target) return;
+
+    selectedCssSelector = null;
+    try {
+      if (typeof CssSelectorGenerator !== 'undefined' && CssSelectorGenerator.getCssSelector) {
+        selectedCssSelector = CssSelectorGenerator.getCssSelector(target);
+      }
+    } catch (err) {
+      console.warn('[annotation] CSS selector generation failed:', err);
+    }
+
+    var rect = target.getBoundingClientRect();
+    var dpr = window.devicePixelRatio || 1;
+
+    var regionX = Math.max(0, Math.round(rect.left));
+    var regionY = Math.max(0, Math.round(rect.top));
+    var regionW = Math.round(Math.min(rect.width, window.innerWidth - regionX));
+    var regionH = Math.round(Math.min(rect.height, window.innerHeight - regionY));
+
+    if (regionW < 5 || regionH < 5) return;
+
+    var elementText = (target.innerText || '').trim().slice(0, 500) || null;
+
+    cropScreenshotToRect(pickerDataUrl, regionX, regionY, regionW, regionH, dpr, function (croppedCanvas) {
+      container.removeEventListener('mousemove', onPickerMouseMove, true);
+      container.removeEventListener('click', onPickerClick, true);
+      pickerHighlight = null;
+
+      while (container.firstChild) container.firstChild.remove();
+      container.className = 'ann-overlay-container';
+
+      captureData = {
+        regionX: regionX,
+        regionY: regionY,
+        regionW: regionW,
+        regionH: regionH,
+        croppedCanvas: croppedCanvas,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        pageUrl: window.location.href,
+        dpr: dpr,
+        cssSelector: selectedCssSelector,
+        elementText: elementText
+      };
+
+      initMarkup(captureData);
+    });
+  }
+
+  function cropScreenshotToRect(dataUrl, x, y, w, h, dpr, callback) {
+    var img = new Image();
+    img.onload = function () {
+      var canvas = document.createElement('canvas');
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      var ctx = canvas.getContext('2d');
+      ctx.drawImage(img, x * dpr, y * dpr, w * dpr, h * dpr, 0, 0, w * dpr, h * dpr);
+      callback(canvas);
+    };
+    img.src = dataUrl;
+  }
+
   // --- Phase: Markup (Fabric.js) ---
 
   function initMarkup(data) {
@@ -220,6 +343,7 @@
       selection: false,
       renderOnAddRemove: true
     });
+    fabricCanvas.defaultCursor = 'crosshair';
 
     var wrapper = fabricCanvas.wrapperEl;
     wrapper.style.position = 'fixed';
@@ -328,7 +452,9 @@
         brush.color = hexToRgba(activeColor, 0.3);
         brush.width = 12 * dpr;
         fabricCanvas.freeDrawingBrush = brush;
+        fabricCanvas.freeDrawingCursor = 'crosshair';
       }
+      fabricCanvas.defaultCursor = (toolId === 'text') ? 'text' : 'crosshair';
     }
     toolbar.querySelectorAll('.ann-toolbar-btn[data-tool]').forEach(function (btn) {
       btn.classList.toggle('active', btn.dataset.tool === toolId);
@@ -589,6 +715,13 @@
         purpose: 'commenting'
       });
     }
+    if (data.elementText) {
+      body.push({
+        type: 'TextualBody',
+        value: data.elementText,
+        purpose: 'describing'
+      });
+    }
     body.push({ type: 'Image' });
 
     var selectors = [
@@ -598,6 +731,13 @@
         value: 'xywh=' + data.regionX + ',' + data.regionY + ',' + data.regionW + ',' + data.regionH
       }
     ];
+
+    if (data.cssSelector) {
+      selectors.push({
+        type: 'CssSelector',
+        value: data.cssSelector
+      });
+    }
 
     if (data.hasMarkup && data.markupSvg) {
       selectors.push({
@@ -681,10 +821,16 @@
     drawShape = null;
     toolbar = null;
     hasMarkup = false;
+    pickerHighlight = null;
+    pickerDataUrl = null;
+    selectedCssSelector = null;
     if (container) {
+      container.removeEventListener('mousemove', onPickerMouseMove, true);
+      container.removeEventListener('click', onPickerClick, true);
       container.remove();
       container = null;
     }
     setState('idle');
+    chrome.runtime.sendMessage({ type: 'capture-ended' }).catch(() => {});
   }
 })();
