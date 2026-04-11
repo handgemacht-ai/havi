@@ -1,0 +1,11 @@
+.ann-overlay-container {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483640;
+  isolation: isolate;
+}
+
+.ann-overlay-container * {
+  box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
