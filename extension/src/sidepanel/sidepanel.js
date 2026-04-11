@@ -232,7 +232,23 @@ function createCard(ann) {
     loading: 'lazy',
   });
   const thumbPlaceholder = el('div', { className: 'card-thumb-placeholder', style: 'display:none' });
-  thumbPlaceholder.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>';
+  const phSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  phSvg.setAttribute('width', '20');
+  phSvg.setAttribute('height', '20');
+  phSvg.setAttribute('viewBox', '0 0 24 24');
+  phSvg.setAttribute('fill', 'none');
+  phSvg.setAttribute('stroke', 'currentColor');
+  phSvg.setAttribute('stroke-width', '1.5');
+  ['rect:x=3:y=3:width=18:height=18:rx=2', 'circle:cx=8.5:cy=8.5:r=1.5'].forEach((spec) => {
+    const [tag, ...attrs] = spec.split(':');
+    const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    attrs.forEach((a) => { const [k, v] = a.split('='); node.setAttribute(k, v); });
+    phSvg.appendChild(node);
+  });
+  const phPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  phPath.setAttribute('d', 'm21 15-5-5L5 21');
+  phSvg.appendChild(phPath);
+  thumbPlaceholder.appendChild(phSvg);
   thumbImg.addEventListener('error', () => {
     thumbImg.style.display = 'none';
     thumbPlaceholder.style.display = 'flex';
@@ -386,15 +402,21 @@ function saveEdit(ann) {
     data: { id: ann.id, annotation: { body: updatedBody } },
   }, (response) => {
     editingId = null;
-    if (chrome.runtime.lastError || !response?.ok) return;
+    if (chrome.runtime.lastError || !response?.ok) {
+      const wrap = document.getElementById(`comment-wrap-${ann.id}`);
+      if (wrap) {
+        const err = el('p', { className: 'edit-error' }, 'Failed to save. Try again.');
+        wrap.appendChild(err);
+      }
+      return;
+    }
 
     const idx = annotations.findIndex((a) => a.id === ann.id);
     if (idx >= 0) {
       annotations[idx] = response.data;
     }
-    renderList();
     expandedId = ann.id;
-    toggleExpand(ann.id);
+    renderList();
   });
 }
 
@@ -425,7 +447,7 @@ filterBar.addEventListener('click', (e) => {
 
   filterBar.querySelectorAll('.filter-btn').forEach((b) => b.classList.remove('active'));
   btn.classList.add('active');
-  currentFilter = btn.dataset.state;
+  currentFilter = btn.dataset.state || '';
   fetchAnnotations();
 });
 

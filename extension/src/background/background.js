@@ -47,7 +47,12 @@ async function apiRequest(path, options = {}) {
       return { ok: true };
     }
 
-    const body = await resp.json();
+    let body;
+    try {
+      body = await resp.json();
+    } catch {
+      return { ok: false, error: `HTTP ${resp.status}` };
+    }
 
     if (!resp.ok) {
       return { ok: false, error: body.error?.message || `HTTP ${resp.status}` };
