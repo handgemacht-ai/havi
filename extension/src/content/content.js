@@ -42,7 +42,11 @@
     ] }
   ];
 
-  chrome.runtime.onMessage.addListener((message) => {
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message.type === 'ping') {
+      sendResponse({ ok: true });
+      return;
+    }
     if (message.type === 'start-capture' && state === 'idle') {
       startCapture();
     }
@@ -157,7 +161,8 @@
     if (!cropBox || cropBox.width === 0) return;
 
     const top = cropBox.top - 44;
-    actions.style.left = cropBox.left + 'px';
+    var actionsW = actions.offsetWidth || 200;
+    actions.style.left = Math.min(cropBox.left, window.innerWidth - actionsW - 8) + 'px';
     actions.style.top = (top > 0 ? top : cropBox.top + cropBox.height + 8) + 'px';
   }
 
@@ -169,17 +174,15 @@
 
     const dpr = window.devicePixelRatio || 1;
     const croppedCanvas = cropper.getCroppedCanvas({
-      width: Math.round(data.width * dpr),
-      height: Math.round(data.height * dpr),
       imageSmoothingEnabled: true,
       imageSmoothingQuality: 'high'
     });
 
     captureData = {
-      regionX: data.x,
-      regionY: data.y,
-      regionW: data.width,
-      regionH: data.height,
+      regionX: Math.round(data.x / dpr),
+      regionY: Math.round(data.y / dpr),
+      regionW: Math.round(data.width / dpr),
+      regionH: Math.round(data.height / dpr),
       croppedCanvas: croppedCanvas,
       viewportWidth: window.innerWidth,
       viewportHeight: window.innerHeight,
@@ -206,17 +209,23 @@
     activeTool = 'rect';
     activeColor = '#FF0000';
 
+    var scrim = document.createElement('div');
+    scrim.className = 'ann-markup-scrim';
+    container.appendChild(scrim);
+
+    var frame = document.createElement('div');
+    frame.className = 'ann-markup-frame';
+    frame.style.left = (data.regionX - 2) + 'px';
+    frame.style.top = (data.regionY - 2) + 'px';
+    frame.style.width = (data.regionW + 4) + 'px';
+    frame.style.height = (data.regionH + 4) + 'px';
+    container.appendChild(frame);
+
     const dpr = data.dpr;
     const canvasEl = document.createElement('canvas');
     canvasEl.id = 'ann-fabric-canvas';
-    canvasEl.width = data.regionW * dpr;
-    canvasEl.height = data.regionH * dpr;
-    canvasEl.style.width = data.regionW + 'px';
-    canvasEl.style.height = data.regionH + 'px';
-    canvasEl.style.position = 'fixed';
-    canvasEl.style.left = data.regionX + 'px';
-    canvasEl.style.top = data.regionY + 'px';
-    canvasEl.style.zIndex = '2147483642';
+    canvasEl.width = data.regionW;
+    canvasEl.height = data.regionH;
 
     container.appendChild(canvasEl);
 
@@ -225,11 +234,17 @@
       renderOnAddRemove: true
     });
 
+    var wrapper = fabricCanvas.wrapperEl;
+    wrapper.style.position = 'fixed';
+    wrapper.style.left = data.regionX + 'px';
+    wrapper.style.top = data.regionY + 'px';
+    wrapper.style.zIndex = '2147483643';
+
     const bgImg = new Image();
     bgImg.onload = function () {
       const fabricBg = new fabric.FabricImage(bgImg, {
-        scaleX: (data.regionW * dpr) / bgImg.width,
-        scaleY: (data.regionH * dpr) / bgImg.height,
+        scaleX: data.regionW / bgImg.width,
+        scaleY: data.regionH / bgImg.height,
         selectable: false,
         evented: false
       });
@@ -238,7 +253,7 @@
     };
     bgImg.src = data.croppedCanvas.toDataURL('image/png');
 
-    setupDrawingHandlers(dpr);
+    setupDrawingHandlers(1);
     showToolbar(data);
   }
 
@@ -247,7 +262,6 @@
     toolbar.className = 'ann-toolbar';
 
     const toolbarTop = data.regionY - 48;
-    toolbar.style.left = data.regionX + 'px';
     toolbar.style.top = (toolbarTop > 0 ? toolbarTop : data.regionY + data.regionH + 8) + 'px';
     toolbar.style.position = 'fixed';
 
@@ -313,6 +327,8 @@
     toolbar.appendChild(cancelBtn);
 
     container.appendChild(toolbar);
+    var toolbarW = toolbar.offsetWidth;
+    toolbar.style.left = Math.min(data.regionX, window.innerWidth - toolbarW - 8) + 'px';
   }
 
   function selectTool(toolId) {
@@ -500,21 +516,21 @@
     });
   }
 
-  function finishMarkup() {
+  async function finishMarkup() {
     if (!fabricCanvas || !captureData) return;
 
     fabricCanvas.discardActiveObject();
     fabricCanvas.renderAll();
 
-    var compositeDataUrl = fabricCanvas.toDataURL({ format: 'png', multiplier: 1 });
+    var compositeDataUrl = fabricCanvas.toDataURL({ format: 'png', multiplier: captureData.dpr });
     var markupSvg = hasMarkup ? fabricCanvas.toSVG() : null;
 
-    var canvasEl = fabricCanvas.lowerCanvasEl;
-    fabricCanvas.dispose();
+    var wrapperEl = fabricCanvas.wrapperEl;
+    await fabricCanvas.dispose();
     fabricCanvas = null;
 
     if (toolbar) { toolbar.remove(); toolbar = null; }
-    if (canvasEl && canvasEl.parentElement) canvasEl.parentElement.remove();
+    if (wrapperEl && wrapperEl.parentElement) wrapperEl.remove();
 
     captureData.compositeDataUrl = compositeDataUrl;
     captureData.hasMarkup = hasMarkup;

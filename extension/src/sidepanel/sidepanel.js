@@ -379,12 +379,19 @@ function saveEdit(ann) {
 
   if (!newValue) return;
 
-  const updatedBody = (ann.annotation.body || []).map((b) => {
-    if (b.type === 'TextualBody' && b.purpose === 'commenting') {
-      return { ...b, value: newValue };
-    }
-    return b;
-  });
+  const origBody = ann.annotation.body || [];
+  const hasComment = origBody.some((b) => b.type === 'TextualBody' && b.purpose === 'commenting');
+  let updatedBody;
+  if (hasComment) {
+    updatedBody = origBody.map((b) => {
+      if (b.type === 'TextualBody' && b.purpose === 'commenting') {
+        return { ...b, value: newValue };
+      }
+      return b;
+    });
+  } else {
+    updatedBody = [{ type: 'TextualBody', value: newValue, purpose: 'commenting' }, ...origBody];
+  }
 
   chrome.runtime.sendMessage({
     type: 'update-annotation',

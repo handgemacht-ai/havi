@@ -2,13 +2,35 @@ const DEFAULT_SERVER_URL = 'http://localhost:8090';
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 
+async function ensureContentScript(tabId) {
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: 'ping' });
+  } catch {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['assets/fabric.min.js', 'assets/cropper.min.js', 'src/content/content.js'],
+    });
+    await chrome.scripting.insertCSS({
+      target: { tabId },
+      files: ['assets/cropper.min.css', 'src/content/content.css'],
+    });
+  }
+}
+
+async function startCaptureInTab(tabId) {
+  const tab = await chrome.tabs.get(tabId);
+  if (!tab.url || !/^https?:\/\//.test(tab.url)) return;
+  await ensureContentScript(tabId);
+  await chrome.tabs.sendMessage(tabId, { type: 'start-capture' });
+}
+
 chrome.commands.onCommand.addListener(async (command) => {
   if (command !== 'toggle-capture') return;
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) return;
 
-  chrome.tabs.sendMessage(tab.id, { type: 'start-capture' });
+  startCaptureInTab(tab.id);
 });
 
 function getServerUrl() {
@@ -72,7 +94,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.type) {
     case 'start-capture-from-panel': {
       chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
-        if (tab?.id) chrome.tabs.sendMessage(tab.id, { type: 'start-capture' });
+        if (tab?.id) startCaptureInTab(tab.id);
       });
       return false;
     }
