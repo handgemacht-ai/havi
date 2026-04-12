@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "Self-hosted annotation platform for developer teams",
   "permissions": ["activeTab", "sidePanel", "storage", "scripting"],
-  "host_permissions": ["<all_urls>"],
+  "host_permissions": ["http://localhost:*/", "http://127.0.0.1:*/"],
   "content_scripts": [
     {
       "matches": ["<all_urls>"],

@@ -50,15 +50,26 @@
       sendResponse({ ok: true });
       return;
     }
-    if (message.type === 'start-capture' && state === 'idle') {
-      console.log('[annotation] start-capture received, dataUrl length:', message.dataUrl?.length);
+    if (message.type === 'start-capture') {
+      if (state !== 'idle') {
+        sendResponse({ ok: false, error: 'Capture already in progress' });
+        return;
+      }
       setState('capturing');
       initRegionSelection(message.dataUrl);
+      sendResponse({ ok: true });
+      return;
     }
-    if (message.type === 'start-pick-element' && state === 'idle') {
+    if (message.type === 'start-pick-element') {
+      if (state !== 'idle') {
+        sendResponse({ ok: false, error: 'Capture already in progress' });
+        return;
+      }
       setState('picking');
       pickerDataUrl = message.dataUrl;
       initElementPicker();
+      sendResponse({ ok: true });
+      return;
     }
     if (message.type === 'cancel-capture' && state !== 'idle') {
       cancelCapture();
@@ -772,24 +783,36 @@
       data: { annotation: annotation, imageDataUrl: data.compositeDataUrl }
     }, function (response) {
       if (chrome.runtime.lastError || response?.error) {
-        showToast('Failed to save annotation');
+        showToast('Failed to save annotation', 'error');
         return;
       }
       cancelCapture();
-      showToast('Annotation saved');
+      showToast('Annotation saved', 'success');
     });
   }
 
-  function showToast(message) {
+  function showToast(message, type) {
+    var isError = type === 'error';
     var toast = document.createElement('div');
-    toast.className = 'ann-toast';
+    toast.className = 'ann-toast' + (isError ? ' ann-toast-error' : '');
 
     var iconSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     iconSvg.setAttribute('class', 'ann-toast-icon');
     iconSvg.setAttribute('viewBox', '0 0 18 18');
-    var polyline = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
-    polyline.setAttribute('points', '4 9 7 12 14 5');
-    iconSvg.appendChild(polyline);
+    if (isError) {
+      var line1 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line1.setAttribute('x1', '5'); line1.setAttribute('y1', '5');
+      line1.setAttribute('x2', '13'); line1.setAttribute('y2', '13');
+      iconSvg.appendChild(line1);
+      var line2 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line2.setAttribute('x1', '13'); line2.setAttribute('y1', '5');
+      line2.setAttribute('x2', '5'); line2.setAttribute('y2', '13');
+      iconSvg.appendChild(line2);
+    } else {
+      var polyline = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+      polyline.setAttribute('points', '4 9 7 12 14 5');
+      iconSvg.appendChild(polyline);
+    }
     toast.appendChild(iconSvg);
 
     var span = document.createElement('span');
@@ -801,7 +824,7 @@
       toast.style.transition = 'opacity 0.3s ease';
       toast.style.opacity = '0';
       setTimeout(function () { toast.remove(); }, 300);
-    }, 1500);
+    }, isError ? 3000 : 1500);
   }
 
   // --- Teardown ---

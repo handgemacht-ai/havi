@@ -237,6 +237,10 @@
   animation: ann-slide-up 0.2s ease-out;
 }
 
+.ann-toast-error {
+  background: #991b1b;
+}
+
 .ann-toast-icon {
   width: 18px;
   height: 18px;
