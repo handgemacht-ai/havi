@@ -4,6 +4,10 @@
   if (window.__annPluginLoaded) return;
   window.__annPluginLoaded = true;
 
+  chrome.storage.sync.get({ contextBufferSize: 10 }, function (settings) {
+    document.documentElement.dataset.annBufferSize = settings.contextBufferSize;
+  });
+
   let state = 'idle';
   let container = null;
   let cropper = null;
@@ -730,11 +734,36 @@
     }
   }
 
+  function getCollectedContext() {
+    return new Promise(function (resolve) {
+      var timeout = setTimeout(function () { resolve(null); }, 500);
+      var handler = function (e) {
+        clearTimeout(timeout);
+        window.removeEventListener('__ann_context_response', handler);
+        resolve(e.detail);
+      };
+      window.addEventListener('__ann_context_response', handler);
+      window.dispatchEvent(new CustomEvent('__ann_request_context'));
+    });
+  }
+
+  function getPageMetadata() {
+    return {
+      userAgent: navigator.userAgent,
+      title: document.title || null,
+      description: (document.querySelector('meta[name="description"]') || {}).content || null,
+      viewport: (document.querySelector('meta[name="viewport"]') || {}).content || null,
+      language: document.documentElement.lang || null,
+      url: window.location.href
+    };
+  }
+
   async function submitAnnotation(commentText, data) {
     var hookResponse = await fetchHookContext();
     var hookContext = null;
     var knownFields = ['worktree', 'branch', 'project', 'commit', 'port'];
-
+    var collectedCtx = await getCollectedContext();
+    var metadata = getPageMetadata();
     var now = new Date().toISOString();
     var body = [];
     if (commentText && commentText.trim()) {
@@ -774,7 +803,59 @@
         });
       }
     }
-
+    if (collectedCtx && collectedCtx.consoleErrors && collectedCtx.consoleErrors.length) {
+      body.push({
+        type: 'TextualBody',
+        value: collectedCtx.consoleErrors.map(function (e) {
+          return '[' + e.level + '] ' + e.message;
+        }).join('\n'),
+        purpose: 'describing',
+        format: 'text/plain',
+        'x:role': 'console-errors'
+      });
+    }
+    if (collectedCtx && collectedCtx.networkErrors && collectedCtx.networkErrors.length) {
+      body.push({
+        type: 'TextualBody',
+        value: collectedCtx.networkErrors.map(function (e) {
+          return e.method + ' ' + e.url + ' ' + e.status + ' ' + e.statusText;
+        }).join('\n'),
+        purpose: 'describing',
+        format: 'text/plain',
+        'x:role': 'network-errors'
+      });
+    }
+    if (collectedCtx && collectedCtx.webVitals) {
+      var parts = [];
+      if (collectedCtx.webVitals.lcp != null) parts.push('LCP=' + collectedCtx.webVitals.lcp.toFixed(1) + 'ms');
+      if (collectedCtx.webVitals.cls != null) parts.push('CLS=' + collectedCtx.webVitals.cls.toFixed(2));
+      if (collectedCtx.webVitals.inp != null) parts.push('INP=' + collectedCtx.webVitals.inp + 'ms');
+      if (parts.length) {
+        body.push({
+          type: 'TextualBody',
+          value: parts.join(' '),
+          purpose: 'describing',
+          format: 'text/plain',
+          'x:role': 'web-vitals'
+        });
+      }
+    }
+    if (metadata) {
+      var metaParts = [];
+      if (metadata.userAgent) metaParts.push('UA: ' + metadata.userAgent);
+      if (metadata.title) metaParts.push('Title: ' + metadata.title);
+      if (metadata.description) metaParts.push('Desc: ' + metadata.description);
+      if (metadata.language) metaParts.push('Lang: ' + metadata.language);
+      if (metaParts.length) {
+        body.push({
+          type: 'TextualBody',
+          value: metaParts.join(' | '),
+          purpose: 'describing',
+          format: 'text/plain',
+          'x:role': 'page-metadata'
+        });
+      }
+    }
     body.push({ type: 'Image' });
 
     var selectors = [
