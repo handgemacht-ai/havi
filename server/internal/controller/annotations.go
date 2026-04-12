@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"sync"
 
 	"github.com/google/uuid"
 
@@ -22,10 +23,28 @@ const maxImageSize = 10 << 20 // 10MB
 type AnnotationController struct {
 	service *service.AnnotationService
 	webhook *webhook.Webhook
+	mode    string
+	modeMu  sync.RWMutex
 }
 
 func NewAnnotationController(svc *service.AnnotationService, wh *webhook.Webhook) *AnnotationController {
-	return &AnnotationController{service: svc, webhook: wh}
+	return &AnnotationController{
+		service: svc,
+		webhook: wh,
+		mode:    "auto",
+	}
+}
+
+func (c *AnnotationController) channelMode() string {
+	c.modeMu.RLock()
+	defer c.modeMu.RUnlock()
+	return c.mode
+}
+
+func (c *AnnotationController) setChannelMode(mode string) {
+	c.modeMu.Lock()
+	defer c.modeMu.Unlock()
+	c.mode = mode
 }
 
 func (c *AnnotationController) handleCreate(w http.ResponseWriter, r *http.Request) {
@@ -80,8 +99,9 @@ func (c *AnnotationController) handleCreate(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if c.webhook != nil {
-		data, _ := json.Marshal(ann.W3C)
+	if c.webhook != nil && c.channelMode() == "auto" {
+		resp := dto.ToAnnotationResponse(ann)
+		data, _ := json.Marshal(resp)
 		c.webhook.Fire(r.Context(), data)
 	}
 

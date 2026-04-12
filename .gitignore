@@ -7,6 +7,9 @@
 server/cmd/server/server
 *.exe
 
+# Channel server
+channel/node_modules/
+
 # Extension
 extension/web-ext-artifacts/
 extension.crx

@@ -260,6 +260,103 @@ The `resolution` object is open-ended — callers pass whatever metadata is rele
 
 ---
 
+### GET /api/settings/channel-mode
+
+Get the current channel push mode.
+
+**Response**: `200 OK`
+
+```json
+{
+  "data": {
+    "mode": "auto"
+  }
+}
+```
+
+`mode` is either `"auto"` (webhooks fire on create) or `"deferred"` (webhooks only fire via batch push).
+
+---
+
+### PUT /api/settings/channel-mode
+
+Set the channel push mode.
+
+**Content-Type**: `application/json`
+
+```json
+{
+  "mode": "deferred"
+}
+```
+
+**Response**: `200 OK`
+
+```json
+{
+  "data": {
+    "mode": "deferred"
+  }
+}
+```
+
+**Errors**: `400 validation_error` (mode must be `"auto"` or `"deferred"`)
+
+---
+
+### POST /api/channel/push
+
+Batch-push annotations to the configured webhook. Used in `deferred` mode to manually trigger webhook delivery.
+
+**Content-Type**: `application/json`
+
+```json
+{
+  "annotation_ids": ["550e8400-e29b-41d4-a716-446655440000", "6ba7b810-9dad-11d1-80b4-00c04fd430c8"]
+}
+```
+
+If `annotation_ids` is empty or omitted, all open annotations are pushed.
+
+**Response**: `200 OK`
+
+```json
+{
+  "data": {
+    "pushed": 2
+  }
+}
+```
+
+Non-existent annotation IDs are silently skipped.
+
+**Errors**: `400 webhook_not_configured` (WEBHOOK_URL env var is not set)
+
+---
+
+## Webhook Payload
+
+When a webhook fires (on create in `auto` mode, or via `/api/channel/push`), the payload is the full `AnnotationResponse` DTO — the same shape returned by `GET /api/annotations/:id` inside the `data` envelope:
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "annotation": { "...W3C envelope..." },
+  "project": "",
+  "domain": "localhost:4000",
+  "worktree": "",
+  "branch": "",
+  "state": "open",
+  "motivation": "commenting",
+  "creator": "maxim",
+  "resolution": null,
+  "created_at": "2026-04-12T10:30:00Z",
+  "updated_at": "2026-04-12T10:30:00Z"
+}
+```
+
+---
+
 ## W3C Annotation Envelope
 
 Every annotation stores a W3C Web Annotation JSON-LD envelope in the `annotation` JSONB column. This is the canonical representation. SQL columns are denormalized copies for query performance.

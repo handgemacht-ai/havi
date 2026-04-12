@@ -7,6 +7,7 @@ Self-hosted annotation platform where developers capture visual and technical ob
 ```bash
 just up        # Start Postgres (Docker Compose)
 just server    # Run Go server (native, not Docker)
+just channel   # Run channel server (normally spawned by Claude Code via .mcp.json)
 just down      # Stop Postgres
 just reset     # Drop volumes and restart Postgres
 just logs      # Tail Docker Compose logs
@@ -18,6 +19,7 @@ just status    # Docker Compose process status
 | Service | Port | Env var |
 |---------|------|---------|
 | Go server | 8090 | SERVER_PORT |
+| Channel server | 8091 | CHANNEL_PORT |
 | Postgres | 5432 | DB_PORT |
 
 See `.worktree-ports.json` for worktree offset configuration.
