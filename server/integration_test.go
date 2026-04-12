@@ -1185,3 +1185,104 @@ func TestCreateWithPartialHookContext(t *testing.T) {
 		}
 	}
 }
+
+func TestContextBodiesRoundTrip(t *testing.T) {
+	truncateTables(t)
+
+	annJSON := `{
+		"body": [
+			{"type": "TextualBody", "value": "Bug report", "purpose": "commenting"},
+			{"type": "TextualBody", "value": "[error] TypeError: foo is not a function", "purpose": "describing", "format": "text/plain", "x:role": "console-errors"},
+			{"type": "TextualBody", "value": "GET /api/data 500 Internal Server Error", "purpose": "describing", "format": "text/plain", "x:role": "network-errors"},
+			{"type": "TextualBody", "value": "LCP=1234.5ms CLS=0.05 INP=120ms", "purpose": "describing", "format": "text/plain", "x:role": "web-vitals"},
+			{"type": "TextualBody", "value": "UA: Mozilla/5.0 | Title: Dashboard | Lang: en", "purpose": "describing", "format": "text/plain", "x:role": "page-metadata"}
+		],
+		"target": {"source": "http://localhost:4000/dashboard"},
+		"motivation": "commenting",
+		"creator": {"type": "Person", "name": "tester"}
+	}`
+
+	// When — create annotation with context bodies
+	resp := createAnnotationMultipart(t, annJSON, []byte("fake-png"))
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		t.Fatalf("create status = %d, body: %s", resp.StatusCode, string(body))
+	}
+	createResult := readBody(t, resp)
+	id := createResult["data"].(map[string]any)["id"].(string)
+
+	// When — fetch the annotation back
+	getResp, err := http.Get(testServer.URL + "/api/annotations/" + id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if getResp.StatusCode != http.StatusOK {
+		t.Fatalf("get status = %d, want 200", getResp.StatusCode)
+	}
+	getResult := readBody(t, getResp)
+	ann := getResult["data"].(map[string]any)["annotation"].(map[string]any)
+	bodies := ann["body"].([]any)
+
+	// Then — all context bodies preserved with format and x:role
+	expected := map[string]string{
+		"console-errors": "[error] TypeError: foo is not a function",
+		"network-errors": "GET /api/data 500 Internal Server Error",
+		"web-vitals":     "LCP=1234.5ms CLS=0.05 INP=120ms",
+		"page-metadata":  "UA: Mozilla/5.0 | Title: Dashboard | Lang: en",
+	}
+
+	found := map[string]bool{}
+	for _, b := range bodies {
+		bm := b.(map[string]any)
+		role, hasRole := bm["x:role"]
+		if !hasRole {
+			continue
+		}
+		roleStr := role.(string)
+		found[roleStr] = true
+
+		wantValue, ok := expected[roleStr]
+		if !ok {
+			t.Errorf("unexpected x:role: %s", roleStr)
+			continue
+		}
+		if bm["value"] != wantValue {
+			t.Errorf("x:role=%s value = %q, want %q", roleStr, bm["value"], wantValue)
+		}
+		if bm["format"] != "text/plain" {
+			t.Errorf("x:role=%s format = %v, want text/plain", roleStr, bm["format"])
+		}
+		if bm["purpose"] != "describing" {
+			t.Errorf("x:role=%s purpose = %v, want describing", roleStr, bm["purpose"])
+		}
+	}
+
+	for role := range expected {
+		if !found[role] {
+			t.Errorf("missing context body with x:role=%s", role)
+		}
+	}
+}
+
+func TestContextBodiesEmptyNotStored(t *testing.T) {
+	truncateTables(t)
+
+	// When — create annotation with only comment body (no context)
+	resp := createAnnotationMultipart(t, validAnnotationJSON(), nil)
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		t.Fatalf("status = %d, body: %s", resp.StatusCode, string(body))
+	}
+	result := readBody(t, resp)
+	ann := result["data"].(map[string]any)["annotation"].(map[string]any)
+
+	// Then — no bodies with x:role
+	for _, b := range ann["body"].([]any) {
+		bm := b.(map[string]any)
+		if _, has := bm["x:role"]; has {
+			t.Errorf("unexpected context body with x:role=%v in annotation without context", bm["x:role"])
+		}
+	}
+}
