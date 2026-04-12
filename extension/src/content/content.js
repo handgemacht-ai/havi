@@ -716,7 +716,25 @@
     });
   }
 
-  function submitAnnotation(commentText, data) {
+  async function fetchHookContext() {
+    try {
+      var controller = new AbortController();
+      var timeout = setTimeout(function () { controller.abort(); }, 500);
+      var url = new URL('/__annotation_context', window.location.origin);
+      var res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeout);
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function submitAnnotation(commentText, data) {
+    var hookResponse = await fetchHookContext();
+    var hookContext = null;
+    var knownFields = ['worktree', 'branch', 'project', 'commit', 'port'];
+
     var now = new Date().toISOString();
     var body = [];
     if (commentText && commentText.trim()) {
@@ -733,6 +751,30 @@
         purpose: 'describing'
       });
     }
+
+    if (hookResponse) {
+      hookContext = {};
+      var unknownFields = {};
+      for (var key in hookResponse) {
+        if (Object.prototype.hasOwnProperty.call(hookResponse, key)) {
+          if (knownFields.indexOf(key) !== -1) {
+            hookContext[key] = hookResponse[key];
+          } else {
+            unknownFields[key] = hookResponse[key];
+          }
+        }
+      }
+      if (Object.keys(unknownFields).length > 0) {
+        body.push({
+          type: 'TextualBody',
+          value: JSON.stringify(unknownFields),
+          purpose: 'describing',
+          format: 'application/json',
+          'x:role': 'hook-context'
+        });
+      }
+    }
+
     body.push({ type: 'Image' });
 
     var selectors = [
@@ -780,7 +822,7 @@
 
     chrome.runtime.sendMessage({
       type: 'create-annotation',
-      data: { annotation: annotation, imageDataUrl: data.compositeDataUrl }
+      data: { annotation: annotation, imageDataUrl: data.compositeDataUrl, hookContext: hookContext }
     }, function (response) {
       if (chrome.runtime.lastError || response?.error) {
         showToast('Failed to save annotation', 'error');

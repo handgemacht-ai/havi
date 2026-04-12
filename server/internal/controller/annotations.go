@@ -66,7 +66,15 @@ func (c *AnnotationController) handleCreate(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	ann, err := c.service.Create(r.Context(), &w3c, imageData, imageContentType)
+	ctxFields := service.ContextFields{
+		Project:  r.FormValue("project"),
+		Worktree: r.FormValue("worktree"),
+		Branch:   r.FormValue("branch"),
+		Commit:   r.FormValue("commit"),
+		Port:     r.FormValue("port"),
+	}
+
+	ann, err := c.service.Create(r.Context(), &w3c, imageData, imageContentType, ctxFields)
 	if err != nil {
 		writeServiceError(w, err)
 		return
