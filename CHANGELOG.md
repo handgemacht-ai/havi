@@ -3,6 +3,36 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.0] - 2026-04-12
+
+### Added
+
+#### Channel Server
+- Bun-based MCP server in `channel/` with stdio transport to Claude Code (ann-70l.1)
+- HTTP webhook listener on port 8091 for receiving annotation DTOs (ann-70l.1)
+- `notifications/claude/channel` push into active Claude Code sessions (ann-70l.1)
+- `resolve_annotation` MCP tool proxying to Go server's resolve endpoint (ann-70l.1)
+- Instructions text guiding Claude on how to interpret and act on annotations (ann-70l.1)
+- Health endpoint at `GET /health` (ann-70l.1)
+
+#### Go Server — Channel Mode & Batch Push
+- Channel mode setting: `GET/PUT /api/settings/channel-mode` with "auto" (default) and "deferred" modes (ann-70l.2)
+- Webhook gating: webhooks only fire in "auto" mode (ann-70l.2)
+- Batch push endpoint: `POST /api/channel/push` to push specific or all open annotations (ann-70l.2)
+- Webhook payload changed from raw W3C JSON to full AnnotationResponse DTO (ann-70l.2)
+
+#### Wiring
+- `.mcp.json` entry for `annotations-channel` MCP server (ann-70l.3)
+- `just channel` recipe for standalone channel server (ann-70l.3)
+- Environment variables: CHANNEL_PORT, WEBHOOK_URL, ANNOTATION_SERVER_URL (ann-70l.3)
+- `channel/CLAUDE.md` documenting purpose, env vars, and curl examples (ann-70l.3)
+
+#### Testing
+- 7 integration tests for channel mode, batch push, webhook DTO shape (ann-70l)
+
+### Dependencies
+- @modelcontextprotocol/sdk (Bun/TypeScript)
+
 ## [0.3.0] - 2026-04-12
 
 ### Added

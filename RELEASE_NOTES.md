@@ -1,5 +1,18 @@
 # Release Notes
 
+## 2026-04-12
+
+### Channel Server — Real-Time Annotation Push (ann-70l)
+
+Annotations now push into active Claude Code sessions in real-time:
+
+- **Channel server** — Bun MCP server receives webhook POSTs from the Go server and pushes `<channel source="annotations-channel">` notifications into Claude Code
+- **Auto/deferred modes** — "auto" pushes every annotation immediately; "deferred" accumulates until the developer triggers a batch push from the side panel
+- **Batch push** — `POST /api/channel/push` sends specific or all open annotations on demand, regardless of current mode
+- **resolve_annotation tool** — Claude can mark annotations as fixed directly from the channel, closing the feedback loop
+- **Full DTO webhooks** — webhook payload upgraded from raw W3C JSON to the complete AnnotationResponse DTO with all metadata
+- **Instructions text** — Claude receives guidance on how to interpret annotations, prioritize batches, and act on them
+
 ## 2026-04-11
 
 ### MCP Server for Annotation Platform (ann-bgn)
