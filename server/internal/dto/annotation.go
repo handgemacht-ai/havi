@@ -8,18 +8,18 @@ import (
 )
 
 type AnnotationResponse struct {
-	ID         string              `json:"id"`
+	ID         string               `json:"id"`
 	Annotation *model.W3CAnnotation `json:"annotation"`
-	Project    string              `json:"project"`
-	Domain     string              `json:"domain"`
-	Worktree   string              `json:"worktree"`
-	Branch     string              `json:"branch"`
-	State      string              `json:"state"`
-	Motivation string              `json:"motivation"`
-	Creator    string              `json:"creator"`
-	Resolution json.RawMessage     `json:"resolution"`
-	CreatedAt  string              `json:"created_at"`
-	UpdatedAt  string              `json:"updated_at"`
+	Project    string               `json:"project"`
+	Domain     string               `json:"domain"`
+	Worktree   string               `json:"worktree"`
+	Branch     string               `json:"branch"`
+	State      string               `json:"state"`
+	Motivation string               `json:"motivation"`
+	Creator    string               `json:"creator"`
+	Resolution json.RawMessage      `json:"resolution"`
+	CreatedAt  string               `json:"created_at"`
+	UpdatedAt  string               `json:"updated_at"`
 }
 
 func ToAnnotationResponse(ann *model.Annotation) AnnotationResponse {

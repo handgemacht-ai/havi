@@ -251,4 +251,3 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		model.WriteError(w, http.StatusInternalServerError, "internal_error", "An unexpected error occurred")
 	}
 }
-
