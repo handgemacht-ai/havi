@@ -37,6 +37,7 @@ mkdir -p "$(dirname "$CLAUDE_ENV_FILE")"
 
 TMP_FILE=$(mktemp "${CLAUDE_ENV_FILE}.XXXXXX")
 PRESERVED_FILE=$(mktemp "${CLAUDE_ENV_FILE}.preserved.XXXXXX")
+trap 'rm -f "$TMP_FILE" "$PRESERVED_FILE"' EXIT
 
 # Preserve lines from other plugins (outside our managed block)
 if [ -f "$CLAUDE_ENV_FILE" ]; then

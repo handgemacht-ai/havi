@@ -25,10 +25,10 @@ defmodule <App>Web.Plugs.AnnotationContext do
   defp context do
     %{
       worktree: detect_worktree(),
-      branch: git("rev-parse --abbrev-ref HEAD"),
-      commit: git("rev-parse --short HEAD"),
+      branch: git(~w[rev-parse --abbrev-ref HEAD]),
+      commit: git(~w[rev-parse --short HEAD]),
       project:
-        git("remote get-url origin")
+        git(~w[remote get-url origin])
         |> String.replace(~r|.*/|, "")
         |> String.replace(~r|\.git$|, ""),
       port: System.get_env("PORT") || "4000"
@@ -36,8 +36,8 @@ defmodule <App>Web.Plugs.AnnotationContext do
   end
 
   defp detect_worktree do
-    git_common = git("rev-parse --git-common-dir")
-    git_dir = git("rev-parse --git-dir")
+    git_common = git(~w[rev-parse --git-common-dir])
+    git_dir = git(~w[rev-parse --git-dir])
 
     if git_common != "" and git_dir != "" and git_common != git_dir do
       File.cwd!() |> Path.basename()
@@ -46,8 +46,8 @@ defmodule <App>Web.Plugs.AnnotationContext do
     end
   end
 
-  defp git(cmd) do
-    case System.cmd("git", String.split(cmd), stderr_to_stdout: true) do
+  defp git(args) when is_list(args) do
+    case System.cmd("git", args, stderr_to_stdout: true) do
       {output, 0} -> String.trim(output)
       _ -> ""
     end
