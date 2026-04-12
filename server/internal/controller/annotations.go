@@ -8,10 +8,10 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/handgemacht-ai/annotation-plugin/server/internal/dto"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/model"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/service"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/webhook"
@@ -77,7 +77,7 @@ func (c *AnnotationController) handleCreate(w http.ResponseWriter, r *http.Reque
 		c.webhook.Fire(r.Context(), data)
 	}
 
-	model.WriteJSON(w, http.StatusCreated, map[string]any{"data": toResponse(ann)})
+	model.WriteJSON(w, http.StatusCreated, map[string]any{"data": dto.ToAnnotationResponse(ann)})
 }
 
 func (c *AnnotationController) handleList(w http.ResponseWriter, r *http.Request) {
@@ -108,14 +108,14 @@ func (c *AnnotationController) handleList(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	items := make([]map[string]any, len(annotations))
+	items := make([]dto.AnnotationResponse, len(annotations))
 	for i := range annotations {
-		items[i] = toResponse(&annotations[i])
+		items[i] = dto.ToAnnotationResponse(&annotations[i])
 	}
 
-	model.WriteJSON(w, http.StatusOK, map[string]any{
-		"data": items,
-		"meta": map[string]any{"count": count},
+	model.WriteJSON(w, http.StatusOK, dto.AnnotationListResponse{
+		Data: items,
+		Meta: dto.ListMeta{Count: count},
 	})
 }
 
@@ -132,7 +132,7 @@ func (c *AnnotationController) handleGet(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	model.WriteJSON(w, http.StatusOK, map[string]any{"data": toResponse(ann)})
+	model.WriteJSON(w, http.StatusOK, map[string]any{"data": dto.ToAnnotationResponse(ann)})
 }
 
 func (c *AnnotationController) handleGetImage(w http.ResponseWriter, r *http.Request) {
@@ -175,7 +175,7 @@ func (c *AnnotationController) handleUpdate(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	model.WriteJSON(w, http.StatusOK, map[string]any{"data": toResponse(ann)})
+	model.WriteJSON(w, http.StatusOK, map[string]any{"data": dto.ToAnnotationResponse(ann)})
 }
 
 func (c *AnnotationController) handleDelete(w http.ResponseWriter, r *http.Request) {
@@ -218,7 +218,7 @@ func (c *AnnotationController) handleResolve(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	model.WriteJSON(w, http.StatusOK, map[string]any{"data": toResponse(ann)})
+	model.WriteJSON(w, http.StatusOK, map[string]any{"data": dto.ToAnnotationResponse(ann)})
 }
 
 func parseID(r *http.Request) (uuid.UUID, error) {
@@ -244,19 +244,3 @@ func writeServiceError(w http.ResponseWriter, err error) {
 	}
 }
 
-func toResponse(ann *model.Annotation) map[string]any {
-	return map[string]any{
-		"id":         ann.ID.String(),
-		"annotation": ann.W3C,
-		"project":    ann.Project,
-		"domain":     ann.Domain,
-		"worktree":   ann.Worktree,
-		"branch":     ann.Branch,
-		"state":      ann.State,
-		"motivation": ann.Motivation,
-		"creator":    ann.Creator,
-		"resolution": ann.Resolution,
-		"created_at": ann.CreatedAt.UTC().Format(time.RFC3339),
-		"updated_at": ann.UpdatedAt.UTC().Format(time.RFC3339),
-	}
-}

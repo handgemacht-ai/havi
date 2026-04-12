@@ -56,6 +56,7 @@ func main() {
 	mux := http.NewServeMux()
 	controller.RegisterRoutes(mux, ctrl)
 	mux.Handle("/mcp", mcpModule.Handler())
+	mux.Handle("/mcp/", mcpModule.Handler())
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))

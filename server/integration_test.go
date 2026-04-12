@@ -56,32 +56,24 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
+	testServer = httptest.NewUnstartedServer(nil)
+	baseURL := "http://" + testServer.Listener.Addr().String()
+
 	annotationRepo := repo.NewPostgresRepo(pool)
-	svc := service.NewAnnotationService(annotationRepo, "PLACEHOLDER")
+	svc := service.NewAnnotationService(annotationRepo, baseURL)
 	ctrl := controller.NewAnnotationController(svc, nil)
+	mcpModule := annotationmcp.New(svc)
 
 	mux := http.NewServeMux()
 	controller.RegisterRoutes(mux, ctrl)
+	mux.Handle("/mcp", mcpModule.Handler())
+	mux.Handle("/mcp/", mcpModule.Handler())
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
-	handler := middleware.CORS("", mux)
-	testServer = httptest.NewServer(handler)
-
-	// Recreate with real base URL
-	svc2 := service.NewAnnotationService(annotationRepo, testServer.URL)
-	ctrl2 := controller.NewAnnotationController(svc2, nil)
-	mcpModule := annotationmcp.New(svc2)
-	mux2 := http.NewServeMux()
-	controller.RegisterRoutes(mux2, ctrl2)
-	mux2.Handle("/mcp", mcpModule.Handler())
-	mux2.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	})
-	testServer.Close()
-	testServer = httptest.NewServer(middleware.CORS("", mux2))
+	testServer.Config.Handler = middleware.CORS("", mux)
+	testServer.Start()
 
 	testReg = scenarios.NewTestRegistry(pool, testServer.URL)
 
@@ -951,15 +943,31 @@ func TestMCPResolveAnnotation(t *testing.T) {
 		t.Fatalf("expected ok=true, got: %v", result)
 	}
 	ann := result["data"].(map[string]any)
-	if ann["State"] != "resolved" {
-		t.Errorf("state = %v, want resolved", ann["State"])
+	if ann["state"] != "resolved" {
+		t.Errorf("state = %v, want resolved", ann["state"])
 	}
 
-	// Resolve again — should error
+	// Resolve without metadata — should error
 	resp = mcpCall(t, sessionID, 3, "tools/call", map[string]any{
 		"name": "resolve_annotation",
 		"arguments": map[string]any{
 			"annotation_id": id,
+		},
+	})
+	result = mcpToolResult(t, resp)
+	if result["ok"].(bool) {
+		t.Error("expected ok=false for missing metadata")
+	}
+	if result["error"] != "metadata is required" {
+		t.Errorf("error = %v, want 'metadata is required'", result["error"])
+	}
+
+	// Resolve again — should error
+	resp = mcpCall(t, sessionID, 4, "tools/call", map[string]any{
+		"name": "resolve_annotation",
+		"arguments": map[string]any{
+			"annotation_id": id,
+			"metadata":      map[string]any{"reason": "duplicate"},
 		},
 	})
 	result = mcpToolResult(t, resp)

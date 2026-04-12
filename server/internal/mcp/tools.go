@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/handgemacht-ai/annotation-plugin/server/internal/dto"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/model"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/service"
 )
@@ -46,7 +47,7 @@ func registerTools(server *mcp.Server, svc *service.AnnotationService) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "resolve_annotation",
-		Description: "Mark an annotation as resolved with optional metadata (e.g. commit hash, PR number).",
+		Description: "Mark an annotation as resolved with metadata (e.g. commit hash, PR number).",
 	}, makeResolveTool(svc))
 }
 
@@ -69,11 +70,15 @@ func makeListTool(svc *service.AnnotationService) func(context.Context, *mcp.Cal
 			return ErrorResult(err.Error())
 		}
 
-		type listResponse struct {
-			Annotations []model.Annotation `json:"annotations"`
-			Count       int                `json:"count"`
+		items := make([]dto.AnnotationResponse, len(annotations))
+		for i := range annotations {
+			items[i] = dto.ToAnnotationResponse(&annotations[i])
 		}
-		return SuccessResult(listResponse{Annotations: annotations, Count: count})
+		type listResponse struct {
+			Annotations []dto.AnnotationResponse `json:"annotations"`
+			Count       int                      `json:"count"`
+		}
+		return SuccessResult(listResponse{Annotations: items, Count: count})
 	}
 }
 
@@ -108,12 +113,13 @@ func makeResolveTool(svc *service.AnnotationService) func(context.Context, *mcp.
 			return ErrorResult("invalid annotation ID")
 		}
 
-		var resolution []byte
-		if input.Metadata != nil {
-			resolution, err = json.Marshal(input.Metadata)
-			if err != nil {
-				return ErrorResult("invalid metadata")
-			}
+		if input.Metadata == nil {
+			return ErrorResult("metadata is required")
+		}
+
+		resolution, err := json.Marshal(input.Metadata)
+		if err != nil {
+			return ErrorResult("invalid metadata")
 		}
 
 		ann, err := svc.Resolve(ctx, id, resolution)
@@ -127,6 +133,6 @@ func makeResolveTool(svc *service.AnnotationService) func(context.Context, *mcp.
 			return ErrorResult(err.Error())
 		}
 
-		return SuccessResult(ann)
+		return SuccessResult(dto.ToAnnotationResponse(ann))
 	}
 }
