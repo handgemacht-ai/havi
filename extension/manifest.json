@@ -19,6 +19,12 @@
         "src/content/content.css"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content/context-collector.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
     }
   ],
   "background": {

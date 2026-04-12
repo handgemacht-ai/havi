@@ -1,40 +1,38 @@
-## Epic Summary — ann-wfc: Hook System
+## Epic Summary — ann-gvd: Auto-context capture in Chrome extension
 
 ### What Changed
-The Chrome extension now fetches `/__annotation_context` from the current page's dev server during annotation capture and passes the project context through to the Go server, which stores it in denormalized columns and W3C body.
+Annotations now passively capture console errors, failed network requests, web vitals (LCP/CLS/INP), and page metadata alongside the developer's manual comment and screenshot. All context is attached as W3C TextualBody entries with `purpose: "describing"` and `x:role` discriminators.
 
-### Data Flow
-```
-Content Script → fetch /__annotation_context (500ms timeout)
-  → separate known (worktree/branch/project/commit/port) from unknown fields
-  → unknown → TextualBody in W3C body
-  → known → hookContext in message to background
-
-Background Worker → append hookContext fields as FormData entries
-  → POST /api/annotations (multipart)
-
-Go Server → read optional form values
-  → project/worktree/branch → denormalized SQL columns
-  → commit/port → TextualBody with x:role:"hook-context" in W3C body
-```
-
-### Files Changed
+### Files changed
 | File | Change |
 |------|--------|
-| `extension/src/content/content.js` | Added fetchHookContext(), made submitAnnotation async |
-| `extension/src/background/background.js` | Append hookContext fields to FormData |
-| `server/internal/model/w3c.go` | Added Format, XRole to W3CBody |
-| `server/internal/controller/annotations.go` | Read optional form fields |
-| `server/internal/service/annotation.go` | Added ContextFields, populate columns + hook body |
-| `server/integration_test.go` | 3 new tests + createAnnotationWithContext helper |
+| `extension/src/content/context-collector.js` | NEW — main-world collector (console, network, vitals, CustomEvent bridge) |
+| `extension/manifest.json` | Added second content_scripts entry (MAIN world, document_start) |
+| `extension/src/content/content.js` | Added getCollectedContext(), getPageMetadata(), buffer size init; made submitAnnotation async; wired context bodies into body[] |
+
+### Architecture
+```
+PAGE (main world)                         CONTENT SCRIPT (isolated world)
+context-collector.js (document_start)     content.js (document_idle)
+  console.error/warn → ring buffer          getCollectedContext() ─500ms timeout─→ null
+  fetch/XHR 4xx/5xx → ring buffer           getPageMetadata() ─DOM queries─→ obj
+  PerformanceObserver → latest values            │
+       │                                         ▼
+  CustomEvent: __ann_context_response     submitAnnotation() body[] +=
+       └──────────────────────────────→     x:role "console-errors"
+                                            x:role "network-errors"
+                                            x:role "web-vitals"
+                                            x:role "page-metadata"
+```
 
 ### Key User Flows
-1. **With hook endpoint**: Capture → hook context fetched → denormalized columns populated, commit/port in W3C body
-2. **Without hook endpoint**: Capture → fetch fails silently → annotation created normally with empty fields
-3. **Partial context**: Only some fields provided → those columns populated, no hook-context body if commit/port absent
+1. **Capture with errors**: Navigate to page with console errors → Ctrl+Shift+A → select region → save → annotation body[] includes console-errors and page-metadata entries
+2. **Capture with failed API**: Page makes 500 request → capture → body[] includes network-errors entry
+3. **Clean page capture**: No errors → capture → only comment + image bodies (no empty context entries)
+4. **CSP-blocked page**: Main-world script blocked → getCollectedContext() times out → annotation saved normally without context
 
-### Acceptance Criteria Status
-- [x] Dev server with middleware → columns populated from hook response
-- [x] Dev server without middleware → annotation created normally, empty fields
-- [x] Timeout graceful degradation (500ms AbortController)
-- [x] Backward compatible (no hook context = same behavior as before)
+### How to Test Manually
+1. Load extension unpacked in Chrome
+2. Navigate to a page, open devtools console, run `console.error('test error')`
+3. Capture annotation with Ctrl+Shift+A
+4. Check annotation via `GET /api/annotations/:id` — verify body[] contains x:role entries
