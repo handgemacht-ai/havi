@@ -18,7 +18,9 @@ type W3CBody struct {
 	Type    string `json:"type"`
 	Value   string `json:"value,omitempty"`
 	Purpose string `json:"purpose,omitempty"`
+	Format  string `json:"format,omitempty"`
 	ID      string `json:"id,omitempty"`
+	XRole   string `json:"x:role,omitempty"`
 }
 
 type W3CTarget struct {

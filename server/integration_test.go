@@ -111,6 +111,11 @@ func resultID(t *testing.T, results scenarigo.Results, inst *scenarigo.Instance)
 
 func createAnnotationMultipart(t *testing.T, annotationJSON string, imageData []byte) *http.Response {
 	t.Helper()
+	return createAnnotationWithContext(t, annotationJSON, imageData, nil)
+}
+
+func createAnnotationWithContext(t *testing.T, annotationJSON string, imageData []byte, ctxFields map[string]string) *http.Response {
+	t.Helper()
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 
@@ -123,6 +128,11 @@ func createAnnotationMultipart(t *testing.T, annotationJSON string, imageData []
 			t.Fatal(err)
 		}
 		if _, err := part.Write(imageData); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for k, v := range ctxFields {
+		if err := writer.WriteField(k, v); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1027,5 +1037,151 @@ func TestInvalidUUID(t *testing.T) {
 	// Then — 400
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestCreateWithHookContext(t *testing.T) {
+	truncateTables(t)
+
+	// When — POST with hook context fields
+	resp := createAnnotationWithContext(t, validAnnotationJSON(), nil, map[string]string{
+		"project":  "annotation-plugin",
+		"worktree": "hook-system",
+		"branch":   "claude/hook-system",
+		"commit":   "abc1234",
+		"port":     "3000",
+	})
+
+	// Then — 201 with denormalized columns populated
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		t.Fatalf("status = %d, want 201, body: %s", resp.StatusCode, string(body))
+	}
+
+	result := readBody(t, resp)
+	data := result["data"].(map[string]any)
+
+	if data["project"] != "annotation-plugin" {
+		t.Errorf("project = %v, want annotation-plugin", data["project"])
+	}
+	if data["worktree"] != "hook-system" {
+		t.Errorf("worktree = %v, want hook-system", data["worktree"])
+	}
+	if data["branch"] != "claude/hook-system" {
+		t.Errorf("branch = %v, want claude/hook-system", data["branch"])
+	}
+
+	// Then — commit and port stored in W3C body as hook-context TextualBody
+	ann := data["annotation"].(map[string]any)
+	bodies := ann["body"].([]any)
+	foundHookBody := false
+	for _, b := range bodies {
+		bm := b.(map[string]any)
+		if bm["x:role"] == "hook-context" {
+			foundHookBody = true
+			var hookData map[string]string
+			if err := json.Unmarshal([]byte(bm["value"].(string)), &hookData); err != nil {
+				t.Fatalf("unmarshal hook-context value: %v", err)
+			}
+			if hookData["commit"] != "abc1234" {
+				t.Errorf("hook commit = %v, want abc1234", hookData["commit"])
+			}
+			if hookData["port"] != "3000" {
+				t.Errorf("hook port = %v, want 3000", hookData["port"])
+			}
+			if bm["format"] != "application/json" {
+				t.Errorf("hook format = %v, want application/json", bm["format"])
+			}
+		}
+	}
+	if !foundHookBody {
+		t.Error("no hook-context TextualBody found in annotation body")
+	}
+
+	// Then — verify via GET that columns persist
+	id := data["id"].(string)
+	getResp, err := http.Get(testServer.URL + "/api/annotations/" + id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	getData := readBody(t, getResp)["data"].(map[string]any)
+	if getData["project"] != "annotation-plugin" {
+		t.Errorf("GET project = %v, want annotation-plugin", getData["project"])
+	}
+	if getData["worktree"] != "hook-system" {
+		t.Errorf("GET worktree = %v, want hook-system", getData["worktree"])
+	}
+	if getData["branch"] != "claude/hook-system" {
+		t.Errorf("GET branch = %v, want claude/hook-system", getData["branch"])
+	}
+}
+
+func TestCreateWithoutHookContext(t *testing.T) {
+	truncateTables(t)
+
+	// When — POST without hook context fields (backward compat)
+	resp := createAnnotationMultipart(t, validAnnotationJSON(), nil)
+
+	// Then — 201 with empty denormalized columns
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		t.Fatalf("status = %d, want 201, body: %s", resp.StatusCode, string(body))
+	}
+
+	result := readBody(t, resp)
+	data := result["data"].(map[string]any)
+
+	if data["project"] != "" {
+		t.Errorf("project = %v, want empty", data["project"])
+	}
+	if data["worktree"] != "" {
+		t.Errorf("worktree = %v, want empty", data["worktree"])
+	}
+	if data["branch"] != "" {
+		t.Errorf("branch = %v, want empty", data["branch"])
+	}
+
+	// Then — no hook-context body entry
+	ann := data["annotation"].(map[string]any)
+	for _, b := range ann["body"].([]any) {
+		bm := b.(map[string]any)
+		if bm["x:role"] == "hook-context" {
+			t.Error("hook-context TextualBody should not be present without hook context fields")
+		}
+	}
+}
+
+func TestCreateWithPartialHookContext(t *testing.T) {
+	truncateTables(t)
+
+	// When — POST with only denormalized fields (no commit/port)
+	resp := createAnnotationWithContext(t, validAnnotationJSON(), nil, map[string]string{
+		"project":  "my-project",
+		"worktree": "main",
+		"branch":   "main",
+	})
+
+	// Then — 201 with columns populated but no hook-context body
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		t.Fatalf("status = %d, want 201, body: %s", resp.StatusCode, string(body))
+	}
+
+	result := readBody(t, resp)
+	data := result["data"].(map[string]any)
+
+	if data["project"] != "my-project" {
+		t.Errorf("project = %v, want my-project", data["project"])
+	}
+
+	ann := data["annotation"].(map[string]any)
+	for _, b := range ann["body"].([]any) {
+		bm := b.(map[string]any)
+		if bm["x:role"] == "hook-context" {
+			t.Error("hook-context body should not exist when commit/port are absent")
+		}
 	}
 }

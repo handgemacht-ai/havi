@@ -147,7 +147,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     case 'create-annotation': {
-      const { annotation, imageDataUrl } = message.data;
+      const { annotation, imageDataUrl, hookContext } = message.data;
 
       (async () => {
         const serverUrl = await getServerUrl();
@@ -157,6 +157,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (imageDataUrl) {
           const blob = dataUrlToBlob(imageDataUrl);
           form.append('image', blob, 'screenshot.png');
+        }
+
+        if (hookContext) {
+          if (hookContext.project) form.append('project', hookContext.project);
+          if (hookContext.worktree) form.append('worktree', hookContext.worktree);
+          if (hookContext.branch) form.append('branch', hookContext.branch);
+          if (hookContext.commit) form.append('commit', hookContext.commit);
+          if (hookContext.port) form.append('port', hookContext.port);
         }
 
         const controller = new AbortController();

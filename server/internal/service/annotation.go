@@ -13,6 +13,14 @@ import (
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/repo"
 )
 
+type ContextFields struct {
+	Project  string
+	Worktree string
+	Branch   string
+	Commit   string
+	Port     string
+}
+
 type AnnotationService struct {
 	repo    repo.AnnotationRepo
 	baseURL string
@@ -22,7 +30,7 @@ func NewAnnotationService(repo repo.AnnotationRepo, baseURL string) *AnnotationS
 	return &AnnotationService{repo: repo, baseURL: baseURL}
 }
 
-func (s *AnnotationService) Create(ctx context.Context, w3c *model.W3CAnnotation, imageData []byte, contentType string) (*model.Annotation, error) {
+func (s *AnnotationService) Create(ctx context.Context, w3c *model.W3CAnnotation, imageData []byte, contentType string, ctxFields ContextFields) (*model.Annotation, error) {
 	if err := model.ValidateW3CAnnotation(w3c); err != nil {
 		return nil, err
 	}
@@ -41,13 +49,31 @@ func (s *AnnotationService) Create(ctx context.Context, w3c *model.W3CAnnotation
 		w3c.Motivation = motivation
 	}
 
+	if ctxFields.Commit != "" || ctxFields.Port != "" {
+		hookData := map[string]string{}
+		if ctxFields.Commit != "" {
+			hookData["commit"] = ctxFields.Commit
+		}
+		if ctxFields.Port != "" {
+			hookData["port"] = ctxFields.Port
+		}
+		hookJSON, _ := json.Marshal(hookData)
+		w3c.Body = append(w3c.Body, model.W3CBody{
+			Type:    "TextualBody",
+			Value:   string(hookJSON),
+			Purpose: "describing",
+			Format:  "application/json",
+			XRole:   "hook-context",
+		})
+	}
+
 	ann := &model.Annotation{
 		ID:         id,
 		W3C:        w3c,
-		Project:    "",
+		Project:    ctxFields.Project,
 		Domain:     extractDomain(w3c.Target.Source),
-		Worktree:   "",
-		Branch:     "",
+		Worktree:   ctxFields.Worktree,
+		Branch:     ctxFields.Branch,
 		State:      "open",
 		Motivation: motivation,
 		Creator:    extractCreator(w3c),
