@@ -14,7 +14,20 @@ async function ensureContentScript(tabId) {
       target: { tabId },
       files: ['assets/cropper.min.css', 'src/content/content.css'],
     });
+    await waitForContentReady(tabId);
   }
+}
+
+async function waitForContentReady(tabId, retries = 10, delay = 50) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      await chrome.tabs.sendMessage(tabId, { type: 'ping' });
+      return;
+    } catch {
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw new Error('Content script not ready');
 }
 
 async function startCaptureInTab(tabId) {
@@ -24,7 +37,8 @@ async function startCaptureInTab(tabId) {
   }
   const dataUrl = await chrome.tabs.captureVisibleTab(null, { format: 'png' });
   await ensureContentScript(tabId);
-  await chrome.tabs.sendMessage(tabId, { type: 'start-capture', dataUrl });
+  const response = await chrome.tabs.sendMessage(tabId, { type: 'start-capture', dataUrl });
+  if (!response?.ok) throw new Error(response?.error || 'Content script busy');
 }
 
 async function startPickElementInTab(tabId) {
@@ -34,7 +48,8 @@ async function startPickElementInTab(tabId) {
   }
   const dataUrl = await chrome.tabs.captureVisibleTab(null, { format: 'png' });
   await ensureContentScript(tabId);
-  await chrome.tabs.sendMessage(tabId, { type: 'start-pick-element', dataUrl });
+  const response = await chrome.tabs.sendMessage(tabId, { type: 'start-pick-element', dataUrl });
+  if (!response?.ok) throw new Error(response?.error || 'Content script busy');
 }
 
 chrome.commands.onCommand.addListener(async (command) => {

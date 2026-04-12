@@ -39,7 +39,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Fixed
 - start-capture-from-panel handler now returns true (keeps message channel open)
 - startCaptureInTab throws on invalid URLs instead of silently returning
-- host_permissions changed to `<all_urls>` for captureVisibleTab on any page
+- Content script responds with error when capture already in progress (prevents stuck UI)
+- Ping-retry after content script injection to prevent race condition
+- Cancel buttons fall back to reset state when content script is unreachable
+- Toast shows red error styling for failures instead of green success icon
 
 ### Dependencies
 - github.com/modelcontextprotocol/go-sdk v1.5.0

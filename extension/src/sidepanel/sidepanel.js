@@ -37,7 +37,13 @@ function resetCaptureState() {
 
 function cancelActiveCapture() {
   chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
-    if (tab?.id) chrome.tabs.sendMessage(tab.id, { type: 'cancel-capture' }).catch(() => {});
+    if (tab?.id) {
+      chrome.tabs.sendMessage(tab.id, { type: 'cancel-capture' }).catch(() => {
+        resetCaptureState();
+      });
+    } else {
+      resetCaptureState();
+    }
   });
 }
 
