@@ -4,7 +4,7 @@ import * as z from "zod/v4";
 
 const CHANNEL_PORT = parseInt(process.env["CHANNEL_PORT"] || "8091", 10);
 const ANNOTATION_SERVER_URL =
-  process.env["ANNOTATION_SERVER_URL"] || "http://localhost:8100";
+  process.env["ANNOTATION_SERVER_URL"] || "http://localhost:8090";
 
 interface AnnotationWebhookPayload {
   id: string;
@@ -83,9 +83,11 @@ mcpServer.registerTool(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...(commit && { commit }),
-          ...(pr && { pr }),
-          ...(description && { description }),
+          resolution: {
+            ...(commit && { commit }),
+            ...(pr && { pr }),
+            ...(description && { description }),
+          },
         }),
       });
 
