@@ -3,6 +3,10 @@
     "annotation": {
       "type": "http",
       "url": "http://localhost:8090/mcp"
+    },
+    "annotations-channel": {
+      "command": "bun",
+      "args": ["./channel/src/server.ts"]
     }
   }
 }
