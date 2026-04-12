@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import * as z from "zod/v4";
+import { z } from "zod";
 
 const CHANNEL_PORT = parseInt(process.env["CHANNEL_PORT"] || "8091", 10);
 const ANNOTATION_SERVER_URL =
