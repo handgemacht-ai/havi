@@ -103,7 +103,7 @@ settingsToggle.addEventListener('click', () => {
   settingsToggle.classList.toggle('active', isOpen);
 });
 
-saveUrlBtn.addEventListener('click', () => {
+saveUrlBtn.addEventListener('click', async () => {
   const url = serverUrlInput.value.trim();
 
   if (!isValidUrl(url)) {
@@ -113,6 +113,24 @@ saveUrlBtn.addEventListener('click', () => {
   }
 
   serverUrlInput.classList.remove('error');
+
+  try {
+    const parsed = new URL(url);
+    const isLocal = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+
+    if (!isLocal) {
+      const granted = await chrome.permissions.request({
+        origins: [`${parsed.origin}/*`],
+      });
+      if (!granted) {
+        showStatus('Permission required to connect to this server', 'error');
+        return;
+      }
+    }
+  } catch {
+    showStatus('Invalid URL', 'error');
+    return;
+  }
 
   chrome.runtime.sendMessage({ type: 'set-server-url', url }, (response) => {
     if (chrome.runtime.lastError) {
