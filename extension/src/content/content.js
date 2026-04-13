@@ -781,6 +781,15 @@
       });
     }
 
+    if (collectedCtx && collectedCtx.appContext) {
+      if (!hookResponse) hookResponse = {};
+      for (var key in collectedCtx.appContext) {
+        if (Object.prototype.hasOwnProperty.call(collectedCtx.appContext, key)) {
+          hookResponse[key] = collectedCtx.appContext[key];
+        }
+      }
+    }
+
     if (hookResponse) {
       hookContext = {};
       var unknownFields = {};

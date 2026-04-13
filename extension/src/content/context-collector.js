@@ -143,8 +143,19 @@
 
   // CustomEvent bridge
   window.addEventListener('__ann_request_context', function () {
+    var appContext = null;
+    try {
+      var hook = window.__annotationContext;
+      if (typeof hook === 'function') {
+        appContext = hook();
+      } else if (hook && typeof hook === 'object') {
+        appContext = hook;
+      }
+    } catch (e) {}
+
     window.dispatchEvent(new CustomEvent('__ann_context_response', {
       detail: {
+        appContext: appContext,
         consoleErrors: consoleErrors.entries(),
         networkErrors: networkErrors.entries(),
         webVitals: {

@@ -583,4 +583,14 @@ chrome.runtime.sendMessage({ type: 'get-server-url' }, (response) => {
   fetchAnnotations();
 });
 
+chrome.tabs.onActivated.addListener(() => {
+  fetchAnnotations();
+});
+
+chrome.tabs.onUpdated.addListener((_tabId, changeInfo) => {
+  if (changeInfo.url) {
+    fetchAnnotations();
+  }
+});
+
 setInterval(checkHealth, 30000);
