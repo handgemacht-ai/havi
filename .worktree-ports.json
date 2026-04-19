@@ -5,5 +5,12 @@
   "services": {
     "SERVER_PORT": 8090,
     "DB_PORT": 5432
-  }
+  },
+  "probes": {
+    "SERVER_PORT": { "kind": "http",   "path": "/", "label": "Plugin server" },
+    "DB_PORT":     { "kind": "docker", "service": "postgres", "label": "PostgreSQL" }
+  },
+  "preview": [
+    { "name": "annotation-plugin", "port": "SERVER_PORT" }
+  ]
 }
