@@ -1,0 +1,128 @@
+name: Publish extension to Chrome Web Store
+
+on:
+  push:
+    tags:
+      - "ext-v*"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish to the public Chrome Web Store after upload"
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+      CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+      CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+      REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify required secrets are set
+        run: |
+          missing=0
+          for var in EXTENSION_ID CLIENT_ID CLIENT_SECRET REFRESH_TOKEN; do
+            if [ -z "${!var}" ]; then
+              echo "::error::Required secret CHROME_${var#*_} is not set"
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ]
+
+      - name: Resolve version
+        id: version
+        run: |
+          set -euo pipefail
+          manifest_version="$(jq -r .version extension/manifest.json)"
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            tag="${GITHUB_REF#refs/tags/}"
+            tag_version="${tag#ext-v}"
+            if [ "$tag_version" != "$manifest_version" ]; then
+              echo "::error::Tag version ($tag_version) does not match extension/manifest.json version ($manifest_version). Bump manifest.json and re-tag."
+              exit 1
+            fi
+            echo "version=$tag_version" >> "$GITHUB_OUTPUT"
+            echo "trigger=tag" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$manifest_version" >> "$GITHUB_OUTPUT"
+            echo "trigger=dispatch" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build extension.zip
+        run: |
+          set -euo pipefail
+          cd extension && python3 - <<'PY'
+          import zipfile, pathlib
+          z = zipfile.ZipFile('../extension.zip', 'w', zipfile.ZIP_DEFLATED)
+          for f in pathlib.Path('.').rglob('*'):
+              if f.is_file() and not any(p.startswith('.') for p in f.parts):
+                  z.write(f, f.relative_to('.'))
+          z.close()
+          PY
+          ls -lh ../extension.zip
+
+      - name: Acquire access token
+        id: token
+        run: |
+          set -euo pipefail
+          response="$(curl -sS -X POST https://oauth2.googleapis.com/token \
+            -d "client_id=${CLIENT_ID}" \
+            -d "client_secret=${CLIENT_SECRET}" \
+            -d "refresh_token=${REFRESH_TOKEN}" \
+            -d "grant_type=refresh_token")"
+          token="$(printf '%s' "$response" | jq -r '.access_token // empty')"
+          if [ -z "$token" ]; then
+            echo "::error::Failed to obtain access token from Google OAuth"
+            printf '%s\n' "$response" | jq '.' || printf '%s\n' "$response"
+            exit 1
+          fi
+          echo "::add-mask::$token"
+          echo "access_token=$token" >> "$GITHUB_OUTPUT"
+
+      - name: Upload zip to Chrome Web Store
+        run: |
+          set -euo pipefail
+          response="$(curl -sS -X PUT \
+            -H "Authorization: Bearer ${{ steps.token.outputs.access_token }}" \
+            -H "x-goog-api-version: 2" \
+            -T extension.zip \
+            "https://www.googleapis.com/upload/chromewebstore/v1.1/items/${EXTENSION_ID}")"
+          echo "$response" | jq '.'
+          state="$(printf '%s' "$response" | jq -r '.uploadState // empty')"
+          if [ "$state" != "SUCCESS" ]; then
+            echo "::error::Chrome Web Store upload failed (uploadState=$state)"
+            exit 1
+          fi
+
+      - name: Publish item
+        if: ${{ steps.version.outputs.trigger == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.publish == 'true') }}
+        run: |
+          set -euo pipefail
+          response="$(curl -sS -X POST \
+            -H "Authorization: Bearer ${{ steps.token.outputs.access_token }}" \
+            -H "x-goog-api-version: 2" \
+            -H "Content-Length: 0" \
+            "https://www.googleapis.com/chromewebstore/v1.1/items/${EXTENSION_ID}/publish")"
+          echo "$response" | jq '.'
+          status="$(printf '%s' "$response" | jq -r '.status[0] // empty')"
+          if [ "$status" = "OK" ]; then
+            echo "Publish OK"
+          else
+            echo "::warning::Publish returned status=$status — this is normal if the listing is held for review."
+          fi
+
+      - name: Skip publish (workflow_dispatch with publish=false)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish != 'true' }}
+        run: echo "Upload completed; publish step skipped because publish=${{ inputs.publish }}."
