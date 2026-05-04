@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Annotation Platform",
+  "name": "HAVI – Human-Agent Visual Interface",
   "version": "0.1.0",
-  "description": "Self-hosted annotation platform for developer teams",
+  "description": "Self-hosted visual annotations on any web page. Bridge human feedback to AI coding agents in real time.",
   "homepage_url": "https://github.com/handgemacht-ai/havi",
   "permissions": ["activeTab", "sidePanel", "storage", "scripting"],
   "host_permissions": ["http://localhost/*", "http://127.0.0.1/*"],
@@ -50,7 +50,7 @@
       "48": "assets/icon-48.png",
       "128": "assets/icon-128.png"
     },
-    "default_title": "Annotation Platform"
+    "default_title": "HAVI"
   },
   "icons": {
     "16": "assets/icon-16.png",

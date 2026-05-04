@@ -1,8 +1,8 @@
-# Privacy Policy — Annotation Platform
+# Privacy Policy — HAVI
 
 **Last updated:** 2026-05-01
 
-This Chrome extension ("Annotation Platform") is published by handgemacht.ai for use by developer teams who want to capture visual annotations against the web pages they are working on. This document describes what the extension collects, where that data goes, and what it does not do.
+This Chrome extension ("HAVI") is published by handgemacht.ai for use by developer teams who want to capture visual annotations against the web pages they are working on. This document describes what the extension collects, where that data goes, and what it does not do.
 
 ## What the extension collects
 
