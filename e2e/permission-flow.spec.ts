@@ -117,7 +117,7 @@ test('side panel renders permission_required alert with a Grant access button', 
 
   const alert = sidePanel.locator('#capture-alert');
   await expect(alert).toBeVisible();
-  await expect(sidePanel.locator('#capture-alert-message')).toContainText('access to example.com');
+  await expect(sidePanel.locator('#capture-alert-message')).toContainText('take a screenshot');
   await expect(sidePanel.locator('#capture-alert-action')).toBeVisible();
   await expect(sidePanel.locator('#capture-alert-action')).toHaveText('Grant access');
 
@@ -203,7 +203,7 @@ test('Grant access calls chrome.permissions.request and retries the capture', as
   const recorded = await sidePanel.evaluate(() => window.__haviCalls);
   const permissionRequests = recorded.filter((c) => c.kind === 'permissions.request');
   expect(permissionRequests).toHaveLength(1);
-  expect(permissionRequests[0].permissions).toEqual({ origins: ['https://example.com/*'] });
+  expect(permissionRequests[0].permissions).toEqual({ origins: ['https://*/*', 'http://*/*'] });
 
   const captureMessages = recorded.filter(
     (c) => c.kind === 'sendMessage' && (c.message as { type?: string })?.type === 'start-capture-from-panel',

@@ -72,10 +72,7 @@ function showCaptureAlert(message, action) {
 
 captureAlertDismiss.addEventListener('click', hideCaptureAlert);
 
-function originPatternsFor(origin) {
-  if (origin) return [origin + '/*'];
-  return ['https://*/*', 'http://*/*'];
-}
+const BROAD_ORIGIN_PATTERNS = ['https://*/*', 'http://*/*'];
 
 function startCaptureRequest(messageType, label) {
   hideCaptureAlert();
@@ -93,12 +90,11 @@ function handleCaptureFailure(messageType, label, response) {
   const origin = response?.origin ?? null;
 
   if (code === 'permission_required') {
-    const siteLabel = origin ? new URL(origin).host : 'this site';
     showCaptureAlert(
-      `${label} needs access to ${siteLabel}. Grant access and HAVI will retry.`,
+      `${label} needs to read pages you visit so it can take a screenshot. Grant access and HAVI will retry.`,
       {
         label: 'Grant access',
-        onClick: () => requestPermissionAndRetry(messageType, label, origin),
+        onClick: () => requestPermissionAndRetry(messageType, label),
       },
     );
     return;
@@ -112,9 +108,8 @@ function handleCaptureFailure(messageType, label, response) {
   showCaptureAlert(`${label} failed: ${error}`);
 }
 
-function requestPermissionAndRetry(messageType, label, origin) {
-  const origins = originPatternsFor(origin);
-  chrome.permissions.request({ origins }, (granted) => {
+function requestPermissionAndRetry(messageType, label) {
+  chrome.permissions.request({ origins: BROAD_ORIGIN_PATTERNS }, (granted) => {
     if (chrome.runtime.lastError) {
       showCaptureAlert(`Could not request permission: ${chrome.runtime.lastError.message}`);
       return;
