@@ -39,7 +39,7 @@ The CWS form asks for a justification for every permission. Use the table below 
 | `storage` | Required to persist user preferences such as the annotation server URL and capture defaults via `chrome.storage.sync`. |
 | `sidePanel` | Required to render the annotation list and management UI in Chrome's side panel. |
 | Content scripts matching `<all_urls>` | Annotation capture must work on whichever page the user is currently viewing; the script only runs the capture overlay logic and does not exfiltrate page content. |
-| `host_permissions` for `http://localhost:*/` and `http://127.0.0.1:*/` | Required to send annotations to the user's local annotation server (the default deployment). |
+| `host_permissions` for `http://localhost/*` and `http://127.0.0.1/*` | Required to send annotations to the user's local annotation server (the default deployment). Chrome match patterns ignore the port, so these cover the configurable port (default 8090). |
 | `optional_host_permissions` for `https://*/*` and `http://*/*` | Used only if the user opts in to sending annotations to a self-hosted remote server. The extension does not access these hosts unless the user grants the permission. |
 
 ## Single-purpose statement

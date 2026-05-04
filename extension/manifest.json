@@ -5,7 +5,7 @@
   "description": "Self-hosted annotation platform for developer teams",
   "homepage_url": "https://github.com/handgemacht-ai/havi",
   "permissions": ["activeTab", "sidePanel", "storage", "scripting"],
-  "host_permissions": ["http://localhost:*/", "http://127.0.0.1:*/"],
+  "host_permissions": ["http://localhost/*", "http://127.0.0.1/*"],
   "optional_host_permissions": ["https://*/*", "http://*/*"],
   "content_scripts": [
     {
