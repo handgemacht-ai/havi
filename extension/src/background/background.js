@@ -52,6 +52,29 @@ async function startPickElementInTab(tabId) {
   if (!response?.ok) throw new Error(response?.error || 'Content script busy');
 }
 
+function tabOrigin(tab) {
+  try {
+    if (tab?.url) return new URL(tab.url).origin;
+  } catch {}
+  return null;
+}
+
+function classifyCaptureFailure(err, tab) {
+  const message = err?.message ?? String(err);
+  const url = tab?.url;
+
+  if (!url) {
+    return { ok: false, error: message, code: 'permission_required', origin: null };
+  }
+  if (!/^https?:\/\//.test(url)) {
+    return { ok: false, error: message, code: 'unsupported_page', origin: null };
+  }
+  if (/permission|activeTab|<all_urls>|Cannot access/i.test(message)) {
+    return { ok: false, error: message, code: 'permission_required', origin: tabOrigin(tab) };
+  }
+  return { ok: false, error: message, code: 'other', origin: tabOrigin(tab) };
+}
+
 chrome.commands.onCommand.addListener(async (command) => {
   if (command !== 'toggle-capture') return;
 
@@ -125,24 +148,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'start-capture-from-panel': {
       (async () => {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (!tab?.id) throw new Error('No active tab');
-        await startCaptureInTab(tab.id);
-        sendResponse({ ok: true });
-      })().catch((err) => {
-        sendResponse({ ok: false, error: err.message });
-      });
+        if (!tab?.id) {
+          sendResponse({ ok: false, error: 'No active tab', code: 'no_active_tab', origin: null });
+          return;
+        }
+        try {
+          await startCaptureInTab(tab.id);
+          sendResponse({ ok: true });
+        } catch (err) {
+          sendResponse(classifyCaptureFailure(err, tab));
+        }
+      })();
       return true;
     }
 
     case 'start-pick-element-from-panel': {
       (async () => {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (!tab?.id) throw new Error('No active tab');
-        await startPickElementInTab(tab.id);
-        sendResponse({ ok: true });
-      })().catch((err) => {
-        sendResponse({ ok: false, error: err.message });
-      });
+        if (!tab?.id) {
+          sendResponse({ ok: false, error: 'No active tab', code: 'no_active_tab', origin: null });
+          return;
+        }
+        try {
+          await startPickElementInTab(tab.id);
+          sendResponse({ ok: true });
+        } catch (err) {
+          sendResponse(classifyCaptureFailure(err, tab));
+        }
+      })();
       return true;
     }
 

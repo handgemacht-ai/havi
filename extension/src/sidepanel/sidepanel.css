@@ -272,6 +272,68 @@ body {
   color: #9ca3af;
 }
 
+/* --- Capture Alert --- */
+
+#capture-alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #7f1d1d;
+  background: #fee2e2;
+  border-bottom: 1px solid #fecaca;
+}
+
+#capture-alert.hidden {
+  display: none;
+}
+
+#capture-alert-message {
+  flex: 1;
+}
+
+#capture-alert-action {
+  flex-shrink: 0;
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  color: #fff;
+  background: #dc2626;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+#capture-alert-action:hover {
+  background: #b91c1c;
+}
+
+#capture-alert-action.hidden {
+  display: none;
+}
+
+#capture-alert-dismiss {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+  color: #7f1d1d;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+#capture-alert-dismiss:hover {
+  background: rgba(127, 29, 29, 0.1);
+}
+
 /* --- Connection Banner --- */
 
 #connection-banner {

@@ -9,6 +9,10 @@ const connectionBanner = document.getElementById('connection-banner');
 const annotationList = document.getElementById('annotation-list');
 const emptyState = document.getElementById('empty-state');
 const filterBar = document.getElementById('filter-bar');
+const captureAlert = document.getElementById('capture-alert');
+const captureAlertMessage = document.getElementById('capture-alert-message');
+const captureAlertAction = document.getElementById('capture-alert-action');
+const captureAlertDismiss = document.getElementById('capture-alert-dismiss');
 
 let serverUrl = 'http://localhost:8090';
 let currentFilter = '';
@@ -47,6 +51,86 @@ function cancelActiveCapture() {
   });
 }
 
+function hideCaptureAlert() {
+  captureAlert.classList.add('hidden');
+  captureAlertAction.classList.add('hidden');
+  captureAlertAction.onclick = null;
+}
+
+function showCaptureAlert(message, action) {
+  captureAlertMessage.textContent = message;
+  if (action) {
+    captureAlertAction.textContent = action.label;
+    captureAlertAction.classList.remove('hidden');
+    captureAlertAction.onclick = action.onClick;
+  } else {
+    captureAlertAction.classList.add('hidden');
+    captureAlertAction.onclick = null;
+  }
+  captureAlert.classList.remove('hidden');
+}
+
+captureAlertDismiss.addEventListener('click', hideCaptureAlert);
+
+function originPatternsFor(origin) {
+  if (origin) return [origin + '/*'];
+  return ['https://*/*', 'http://*/*'];
+}
+
+function startCaptureRequest(messageType, label) {
+  hideCaptureAlert();
+  chrome.runtime.sendMessage({ type: messageType }, (response) => {
+    if (chrome.runtime.lastError || !response?.ok) {
+      resetCaptureState();
+      handleCaptureFailure(messageType, label, response);
+    }
+  });
+}
+
+function handleCaptureFailure(messageType, label, response) {
+  const error = response?.error || chrome.runtime.lastError?.message || 'no response';
+  const code = response?.code;
+  const origin = response?.origin ?? null;
+
+  if (code === 'permission_required') {
+    const siteLabel = origin ? new URL(origin).host : 'this site';
+    showCaptureAlert(
+      `${label} needs access to ${siteLabel}. Grant access and HAVI will retry.`,
+      {
+        label: 'Grant access',
+        onClick: () => requestPermissionAndRetry(messageType, label, origin),
+      },
+    );
+    return;
+  }
+
+  if (code === 'unsupported_page') {
+    showCaptureAlert(`${label} is not available on this page (chrome:// and similar URLs are blocked).`);
+    return;
+  }
+
+  showCaptureAlert(`${label} failed: ${error}`);
+}
+
+function requestPermissionAndRetry(messageType, label, origin) {
+  const origins = originPatternsFor(origin);
+  chrome.permissions.request({ origins }, (granted) => {
+    if (chrome.runtime.lastError) {
+      showCaptureAlert(`Could not request permission: ${chrome.runtime.lastError.message}`);
+      return;
+    }
+    if (!granted) {
+      showCaptureAlert(`${label} needs site access. Permission was not granted.`);
+      return;
+    }
+    captureMode = messageType === 'start-capture-from-panel' ? 'capture' : 'pick-element';
+    const btn = messageType === 'start-capture-from-panel' ? captureBtn : pickElementBtn;
+    btn.textContent = 'Cancel capture';
+    btn.classList.add('cancel');
+    startCaptureRequest(messageType, label);
+  });
+}
+
 captureBtn.addEventListener('click', () => {
   if (captureMode) {
     cancelActiveCapture();
@@ -57,12 +141,7 @@ captureBtn.addEventListener('click', () => {
   captureBtn.textContent = 'Cancel capture';
   captureBtn.classList.add('cancel');
 
-  chrome.runtime.sendMessage({ type: 'start-capture-from-panel' }, (response) => {
-    if (chrome.runtime.lastError || !response?.ok) {
-      resetCaptureState();
-      showStatus(`Capture failed: ${response?.error || 'no response'}`, 'error');
-    }
-  });
+  startCaptureRequest('start-capture-from-panel', 'Capture');
 });
 
 pickElementBtn.addEventListener('click', () => {
@@ -75,12 +154,7 @@ pickElementBtn.addEventListener('click', () => {
   pickElementBtn.textContent = 'Cancel capture';
   pickElementBtn.classList.add('cancel');
 
-  chrome.runtime.sendMessage({ type: 'start-pick-element-from-panel' }, (response) => {
-    if (chrome.runtime.lastError || !response?.ok) {
-      resetCaptureState();
-      showStatus(`Pick element failed: ${response?.error || 'no response'}`, 'error');
-    }
-  });
+  startCaptureRequest('start-pick-element-from-panel', 'Pick element');
 });
 
 function showStatus(message, type) {
