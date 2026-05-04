@@ -203,7 +203,7 @@ test('Grant access calls chrome.permissions.request and retries the capture', as
   const recorded = await sidePanel.evaluate(() => window.__haviCalls);
   const permissionRequests = recorded.filter((c) => c.kind === 'permissions.request');
   expect(permissionRequests).toHaveLength(1);
-  expect(permissionRequests[0].permissions).toEqual({ origins: ['https://*/*', 'http://*/*'] });
+  expect(permissionRequests[0].permissions).toEqual({ origins: ['<all_urls>'] });
 
   const captureMessages = recorded.filter(
     (c) => c.kind === 'sendMessage' && (c.message as { type?: string })?.type === 'start-capture-from-panel',

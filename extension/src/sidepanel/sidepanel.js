@@ -72,7 +72,7 @@ function showCaptureAlert(message, action) {
 
 captureAlertDismiss.addEventListener('click', hideCaptureAlert);
 
-const BROAD_ORIGIN_PATTERNS = ['https://*/*', 'http://*/*'];
+const BROAD_ORIGIN_PATTERNS = ['<all_urls>'];
 
 function startCaptureRequest(messageType, label) {
   hideCaptureAlert();
