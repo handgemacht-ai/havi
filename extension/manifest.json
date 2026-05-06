@@ -1,15 +1,27 @@
 {
   "manifest_version": 3,
-  "name": "HAVI – Human-Agent Visual Interface",
-  "version": "0.1.0",
+  "name": "HAVI \u2013 Human-Agent Visual Interface",
+  "version": "0.1.1",
   "description": "Self-hosted visual annotations on any web page. Bridge human feedback to AI coding agents in real time.",
   "homepage_url": "https://github.com/handgemacht-ai/havi",
-  "permissions": ["activeTab", "sidePanel", "storage", "scripting"],
-  "host_permissions": ["http://localhost/*", "http://127.0.0.1/*"],
-  "optional_host_permissions": ["<all_urls>"],
+  "permissions": [
+    "activeTab",
+    "sidePanel",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "optional_host_permissions": [
+    "<all_urls>"
+  ],
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
+      "matches": [
+        "<all_urls>"
+      ],
       "js": [
         "assets/fabric.min.js",
         "assets/cropper.min.js",
@@ -23,8 +35,12 @@
       "run_at": "document_idle"
     },
     {
-      "matches": ["<all_urls>"],
-      "js": ["src/content/context-collector.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "src/content/context-collector.js"
+      ],
       "run_at": "document_start",
       "world": "MAIN"
     }
