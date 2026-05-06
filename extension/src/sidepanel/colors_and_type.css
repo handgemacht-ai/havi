@@ -1,0 +1,82 @@
+/* Handgemacht AI design tokens — subset for the side panel.
+   Keep in sync with handgemacht.ai/src/styles/global.css. */
+
+@font-face {
+  font-family: 'Space Grotesk';
+  src: url('../../assets/fonts/SpaceGrotesk-Light.ttf') format('truetype');
+  font-weight: 300; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Space Grotesk';
+  src: url('../../assets/fonts/SpaceGrotesk-Regular.ttf') format('truetype');
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Space Grotesk';
+  src: url('../../assets/fonts/SpaceGrotesk-Medium.ttf') format('truetype');
+  font-weight: 500; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Space Grotesk';
+  src: url('../../assets/fonts/SpaceGrotesk-SemiBold.ttf') format('truetype');
+  font-weight: 600; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Space Grotesk';
+  src: url('../../assets/fonts/SpaceGrotesk-Bold.ttf') format('truetype');
+  font-weight: 700; font-style: normal; font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('../../assets/fonts/JetBrainsMono-Regular.woff2') format('woff2');
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('../../assets/fonts/JetBrainsMono-Medium.woff2') format('woff2');
+  font-weight: 500; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('../../assets/fonts/JetBrainsMono-SemiBold.woff2') format('woff2');
+  font-weight: 600; font-style: normal; font-display: swap;
+}
+
+:root {
+  --font-sans: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+
+  --bg:          hsl(0 0% 100%);
+  --bg-2:        hsl(0 0% 96%);
+  --fg:          hsl(0 0% 7%);
+  --fg-inverse:  hsl(0 0% 100%);
+  --fg-muted:    hsl(0 0% 45%);
+  --fg-subtle:   hsl(0 0% 65%);
+
+  --amber-50:  #FFFBEB;
+  --amber-100: #FEF3C7;
+  --amber-300: #FCD34D;
+  --amber-500: #F59E0B;
+  --amber-600: #D97706;
+  --amber-700: #B45309;
+
+  --red:   #EF4444;
+  --green: #16A34A;
+
+  --border: hsl(0 0% 90%);
+  --input:  hsl(0 0% 90%);
+  --ring:   hsl(38 92% 50%);
+
+  --radius-sm: 0;
+  --radius-md: 2px;
+  --radius-lg: 4px;
+
+  --shadow-sm: 0 1px 3px rgb(0 0 0 / 0.06), 0 1px 2px rgb(0 0 0 / 0.04);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / 0.06);
+}
+
+*:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
