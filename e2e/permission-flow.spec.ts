@@ -215,6 +215,64 @@ test('Grant access calls chrome.permissions.request and retries the capture', as
   await sidePanel.close();
 });
 
+test('Pick element retries with start-pick-element-from-panel after Grant access', async ({
+  context,
+  serviceWorker,
+}) => {
+  const extensionId = new URL(serviceWorker.url()).host;
+  const sidePanel = await context.newPage();
+  await installSidePanelStubs(sidePanel);
+
+  await sidePanel.goto(`chrome-extension://${extensionId}/src/sidepanel/sidepanel.html`);
+  await sidePanel.waitForFunction(() => typeof chrome !== 'undefined' && !!chrome.runtime?.id);
+
+  await sidePanel.evaluate(() => {
+    let attempts = 0;
+    window.__haviResponder = (msg) => {
+      if (msg?.type === 'start-pick-element-from-panel') {
+        attempts++;
+        if (attempts === 1) {
+          return {
+            ok: false,
+            error: 'simulated',
+            code: 'permission_required',
+            origin: 'https://example.com',
+          };
+        }
+        return { ok: true };
+      }
+      if (msg?.type === 'get-server-url') return { url: 'http://localhost:8090' };
+      if (msg?.type === 'check-health') return { ok: true };
+      if (msg?.type === 'list-annotations') return { ok: true, data: [], meta: { count: 0 } };
+      return { ok: true };
+    };
+    window.__haviPermissionsResponder = () => true;
+  });
+
+  await sidePanel.locator('#pick-element-btn').click();
+  await expect(sidePanel.locator('#capture-alert-action')).toHaveText('Grant access');
+  await sidePanel.locator('#capture-alert-action').click();
+
+  await expect(sidePanel.locator('#capture-alert')).toBeHidden();
+
+  const recorded = await sidePanel.evaluate(() => window.__haviCalls);
+  const permissionRequests = recorded.filter((c) => c.kind === 'permissions.request');
+  expect(permissionRequests).toHaveLength(1);
+  expect(permissionRequests[0].permissions).toEqual({ origins: ['<all_urls>'] });
+
+  const pickMessages = recorded.filter(
+    (c) =>
+      c.kind === 'sendMessage' &&
+      (c.message as { type?: string })?.type === 'start-pick-element-from-panel',
+  );
+  expect(pickMessages).toHaveLength(2);
+
+  await expect(sidePanel.locator('#pick-element-btn')).toContainText('Cancel capture');
+  await expect(sidePanel.locator('#pick-element-btn')).toHaveClass(/cancel/);
+
+  await sidePanel.close();
+});
+
 test('denied permission grant leaves the alert visible with a denial message', async ({
   context,
   serviceWorker,
