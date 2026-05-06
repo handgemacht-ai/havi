@@ -66,6 +66,7 @@ List annotations with optional filters.
 
 | Param | Type | Description |
 |-------|------|-------------|
+| `project` | string | Filter by project key |
 | `domain` | string | Filter by domain |
 | `worktree` | string | Filter by worktree path |
 | `branch` | string | Filter by git branch |
@@ -103,6 +104,31 @@ List annotations with optional filters.
 ```
 
 `meta.count` is the total matching count (before limit/offset).
+
+---
+
+### GET /api/annotations/scopes
+
+Return distinct projects and domains seen across stored annotations. Used by the side panel to populate the project / domain switcher.
+
+**Query parameters**:
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `project` | string | If set, restrict the returned `domains` list to that project |
+
+**Response**: `200 OK`
+
+```json
+{
+  "data": {
+    "projects": ["havi", "spotter"],
+    "domains": ["localhost:4000", "feature-x.dev.handgemacht.ai"]
+  }
+}
+```
+
+`domains` is ordered by most-recently-seen first and capped at 20 entries. Empty values are excluded.
 
 ---
 
@@ -274,7 +300,7 @@ Get the current channel push mode.
 }
 ```
 
-`mode` is either `"auto"` (webhooks fire on create) or `"deferred"` (webhooks only fire via batch push).
+`mode` is either `"auto"` (channel notifications fire on create) or `"deferred"` (notifications only fire via batch push).
 
 ---
 
@@ -306,7 +332,7 @@ Set the channel push mode.
 
 ### POST /api/channel/push
 
-Batch-push annotations to the configured webhook. Used in `deferred` mode to manually trigger webhook delivery.
+Batch-push annotations as `notifications/claude/channel` events to every connected MCP session. Used in `deferred` mode to manually trigger delivery.
 
 **Content-Type**: `application/json`
 
@@ -330,13 +356,28 @@ If `annotation_ids` is empty or omitted, all open annotations are pushed.
 
 Non-existent annotation IDs are silently skipped.
 
-**Errors**: `400 webhook_not_configured` (WEBHOOK_URL env var is not set)
+**Errors**: `500 channel_unavailable` (MCP module is not wired)
 
 ---
 
-## Webhook Payload
+## Channel Notification Payload
 
-When a webhook fires (on create in `auto` mode, or via `/api/channel/push`), the payload is the full `AnnotationResponse` DTO — the same shape returned by `GET /api/annotations/:id` inside the `data` envelope:
+When a notification fires (on create in `auto` mode, or via `/api/channel/push`), every connected MCP session receives a `notifications/claude/channel` JSON-RPC notification with `params`:
+
+```json
+{
+  "content": "New annotation: \"...comment...\"\nPage: <url>\nID: <uuid>",
+  "meta": {
+    "annotation_id": "550e8400-e29b-41d4-a716-446655440000",
+    "domain": "localhost:4000",
+    "worktree": "",
+    "branch": "",
+    "page_url": "http://localhost:4000/dashboard"
+  }
+}
+```
+
+Claude Code surfaces these as `<channel source="havi">` events. The full `AnnotationResponse` DTO can be fetched via the `list_annotations` MCP tool or `GET /api/annotations/:id` (same shape, inside the `data` envelope):
 
 ```json
 {

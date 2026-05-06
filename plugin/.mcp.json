@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "annotation": {
+    "havi": {
       "type": "http",
       "url": "${ANNOTATION_SERVER_URL}/mcp"
     }

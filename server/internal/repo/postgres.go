@@ -185,6 +185,51 @@ func (r *PostgresRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+func (r *PostgresRepo) Scopes(ctx context.Context, project string) (model.Scopes, error) {
+	scopes := model.Scopes{Domains: []string{}, Projects: []string{}}
+
+	projectRows, err := r.pool.Query(ctx,
+		`SELECT DISTINCT project FROM annotations WHERE project <> '' ORDER BY project`,
+	)
+	if err != nil {
+		return scopes, err
+	}
+	for projectRows.Next() {
+		var p string
+		if err := projectRows.Scan(&p); err != nil {
+			projectRows.Close()
+			return scopes, err
+		}
+		scopes.Projects = append(scopes.Projects, p)
+	}
+	projectRows.Close()
+
+	domainSQL := `SELECT domain, MAX(created_at) AS last_seen
+	              FROM annotations
+	              WHERE domain <> ''`
+	args := []any{}
+	if project != "" {
+		domainSQL += ` AND project = $1`
+		args = append(args, project)
+	}
+	domainSQL += ` GROUP BY domain ORDER BY last_seen DESC LIMIT 20`
+
+	domainRows, err := r.pool.Query(ctx, domainSQL, args...)
+	if err != nil {
+		return scopes, err
+	}
+	defer domainRows.Close()
+	for domainRows.Next() {
+		var d string
+		var lastSeen any
+		if err := domainRows.Scan(&d, &lastSeen); err != nil {
+			return scopes, err
+		}
+		scopes.Domains = append(scopes.Domains, d)
+	}
+	return scopes, nil
+}
+
 func (r *PostgresRepo) GetImage(ctx context.Context, annotationID uuid.UUID) ([]byte, string, error) {
 	var data []byte
 	var contentType string
@@ -214,6 +259,7 @@ func buildWhere(filters model.ListFilters) (string, []any) {
 		}
 	}
 
+	add("project", filters.Project)
 	add("domain", filters.Domain)
 	add("worktree", filters.Worktree)
 	add("branch", filters.Branch)

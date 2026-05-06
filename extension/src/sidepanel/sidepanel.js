@@ -10,7 +10,9 @@ const settingsStatus = document.getElementById('settings-status');
 const statusDot = document.getElementById('status-dot');
 const statusLabel = document.getElementById('status-label');
 const connectionBanner = document.getElementById('connection-banner');
-const domainValue = document.getElementById('domain-value');
+const scopeTrigger = document.getElementById('scope-trigger');
+const scopeLabel = document.getElementById('scope-label');
+const scopeDropdown = document.getElementById('scope-dropdown');
 const annotationList = document.getElementById('annotation-list');
 const emptyState = document.getElementById('empty-state');
 const emptyTitle = document.getElementById('empty-title');
@@ -36,6 +38,10 @@ let expandedId = null;
 let editingId = null;
 let annotations = [];
 let captureMode = null;
+let scopeOverride = null;
+let activeScopeDomain = null;
+let recentDomains = [];
+let currentTabDomain = null;
 
 const BROAD_ORIGIN_PATTERNS = ['<all_urls>'];
 
@@ -311,20 +317,58 @@ function timeAgo(dateStr) {
   return `${days}d ago`;
 }
 
-function getCurrentDomain() {
+const SCOPE_STORAGE_KEY = 'havi.scope';
+
+function tabDomain() {
   return new Promise((resolve) => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (!tabs[0]?.url) {
-        resolve(null);
-        return;
-      }
+      const url = tabs[0]?.url;
+      if (!url) return resolve(null);
       try {
-        resolve(new URL(tabs[0].url).host);
+        const parsed = new URL(url);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return resolve(null);
+        resolve(parsed.host || null);
       } catch {
         resolve(null);
       }
     });
   });
+}
+
+async function refreshCurrentTabDomain() {
+  currentTabDomain = await tabDomain();
+}
+
+async function rememberDomain(domain) {
+  if (!domain) return;
+  try {
+    await chrome.storage.session.set({ [SCOPE_STORAGE_KEY + '.lastTabDomain']: domain });
+  } catch {}
+}
+
+async function recallLastTabDomain() {
+  try {
+    const obj = await chrome.storage.session.get(SCOPE_STORAGE_KEY + '.lastTabDomain');
+    return obj[SCOPE_STORAGE_KEY + '.lastTabDomain'] || null;
+  } catch {
+    return null;
+  }
+}
+
+async function loadScopeOverride() {
+  try {
+    const obj = await chrome.storage.session.get(SCOPE_STORAGE_KEY);
+    return obj[SCOPE_STORAGE_KEY] || null;
+  } catch {
+    return null;
+  }
+}
+
+async function saveScopeOverride(scope) {
+  try {
+    if (scope) await chrome.storage.session.set({ [SCOPE_STORAGE_KEY]: scope });
+    else await chrome.storage.session.remove(SCOPE_STORAGE_KEY);
+  } catch {}
 }
 
 function initials(name) {
@@ -414,23 +458,36 @@ function chevronIcon() {
 
 // --- Fetch & Render ---
 
-async function fetchAnnotations() {
-  const domain = await getCurrentDomain();
-  domainValue.textContent = '';
-  if (domain) {
-    domainValue.classList.remove('muted');
-    const globe = svg(
-      { width: '11', height: '11', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' },
-      svgEl('circle', { cx: '12', cy: '12', r: '10' }),
-      svgEl('line', { x1: '2', y1: '12', x2: '22', y2: '12' }),
-      svgEl('path', { d: 'M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z' }),
-    );
-    domainValue.appendChild(globe);
-    domainValue.appendChild(document.createTextNode(domain));
-  } else {
-    domainValue.classList.add('muted');
-    domainValue.textContent = 'No domain detected';
+async function resolveActiveDomain() {
+  if (scopeOverride && scopeOverride.kind === 'all') return null;
+  if (scopeOverride && scopeOverride.kind === 'domain') return scopeOverride.value;
+  const live = await tabDomain();
+  if (live) {
+    rememberDomain(live);
+    return live;
   }
+  return await recallLastTabDomain();
+}
+
+function renderScopeLabel(domain) {
+  scopeLabel.classList.remove('muted', 'all-scope');
+  if (scopeOverride && scopeOverride.kind === 'all') {
+    scopeLabel.textContent = 'All domains';
+    scopeLabel.classList.add('all-scope');
+    return;
+  }
+  if (domain) {
+    scopeLabel.textContent = domain;
+    return;
+  }
+  scopeLabel.textContent = 'No domain detected';
+  scopeLabel.classList.add('muted');
+}
+
+async function fetchAnnotations() {
+  const domain = await resolveActiveDomain();
+  activeScopeDomain = domain;
+  renderScopeLabel(domain);
 
   const filters = {};
   if (domain) filters.domain = domain;
@@ -445,6 +502,118 @@ async function fetchAnnotations() {
     renderList();
   });
 }
+
+function refreshRecentDomains() {
+  chrome.runtime.sendMessage({ type: 'get-scopes' }, (response) => {
+    if (chrome.runtime.lastError || !response?.ok) return;
+    recentDomains = response.data?.domains || [];
+    if (!scopeDropdown.classList.contains('hidden')) renderScopeDropdown();
+  });
+}
+
+function renderScopeDropdown() {
+  scopeDropdown.textContent = '';
+
+  const overrideKind = scopeOverride?.kind || 'tab';
+  const overrideValue = scopeOverride?.value || null;
+
+  const candidates = new Set();
+  if (currentTabDomain) candidates.add(currentTabDomain);
+  if (activeScopeDomain) candidates.add(activeScopeDomain);
+  for (const d of recentDomains) candidates.add(d);
+
+  const recentSection = document.createElement('div');
+  recentSection.className = 'dropdown-section';
+  const recentLabel = document.createElement('div');
+  recentLabel.className = 'dropdown-label';
+  recentLabel.textContent = 'RECENT DOMAINS';
+  recentSection.appendChild(recentLabel);
+
+  if (candidates.size === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'dropdown-empty';
+    empty.textContent = 'No annotated domains yet.';
+    recentSection.appendChild(empty);
+  } else {
+    for (const domain of candidates) {
+      const item = document.createElement('button');
+      item.type = 'button';
+      const isActive = overrideKind === 'domain'
+        ? overrideValue === domain
+        : overrideKind === 'tab' && activeScopeDomain === domain;
+      item.className = 'dropdown-item' + (isActive ? ' active' : '');
+      item.appendChild(svg(
+        { width: '12', height: '12', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' },
+        svgEl('circle', { cx: '12', cy: '12', r: '10' }),
+        svgEl('line', { x1: '2', y1: '12', x2: '22', y2: '12' }),
+        svgEl('path', { d: 'M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z' }),
+      ));
+      item.appendChild(document.createTextNode(domain));
+      item.addEventListener('click', () => selectScope({ kind: 'domain', value: domain }));
+      recentSection.appendChild(item);
+    }
+  }
+
+  scopeDropdown.appendChild(recentSection);
+
+  const allSection = document.createElement('div');
+  allSection.className = 'dropdown-section';
+  const allItem = document.createElement('button');
+  allItem.type = 'button';
+  allItem.className = 'dropdown-item special' + (overrideKind === 'all' ? ' active' : '');
+  allItem.appendChild(svg(
+    { width: '12', height: '12', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' },
+    svgEl('polygon', { points: '12 2 2 7 12 12 22 7 12 2' }),
+    svgEl('polyline', { points: '2 17 12 22 22 17' }),
+    svgEl('polyline', { points: '2 12 12 17 22 12' }),
+  ));
+  allItem.appendChild(document.createTextNode('All domains'));
+  allItem.addEventListener('click', () => selectScope({ kind: 'all' }));
+  allSection.appendChild(allItem);
+  scopeDropdown.appendChild(allSection);
+}
+
+async function selectScope(scope) {
+  if (scope.kind === 'domain' && !scopeOverride && scope.value === activeScopeDomain) {
+    closeScopeDropdown();
+    return;
+  }
+  scopeOverride = scope;
+  await saveScopeOverride(scope);
+  closeScopeDropdown();
+  fetchAnnotations();
+}
+
+function openScopeDropdown() {
+  renderScopeDropdown();
+  scopeDropdown.classList.remove('hidden');
+  scopeTrigger.setAttribute('aria-expanded', 'true');
+  refreshCurrentTabDomain().then(() => {
+    if (!scopeDropdown.classList.contains('hidden')) renderScopeDropdown();
+  });
+  refreshRecentDomains();
+}
+
+function closeScopeDropdown() {
+  scopeDropdown.classList.add('hidden');
+  scopeTrigger.setAttribute('aria-expanded', 'false');
+}
+
+scopeTrigger.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (scopeDropdown.classList.contains('hidden')) openScopeDropdown();
+  else closeScopeDropdown();
+});
+
+document.addEventListener('click', (e) => {
+  if (scopeDropdown.classList.contains('hidden')) return;
+  if (scopeDropdown.contains(e.target) || scopeTrigger.contains(e.target)) return;
+  closeScopeDropdown();
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !scopeDropdown.classList.contains('hidden')) closeScopeDropdown();
+});
 
 function updateCounts() {
   filterCounts.all.textContent = String(annotations.length);
@@ -798,6 +967,7 @@ chrome.runtime.onMessage.addListener((message) => {
   if (message.type === 'annotation-created' && message.data) {
     annotations.unshift(message.data);
     renderList();
+    refreshRecentDomains();
   }
   if (message.type === 'capture-ended') {
     resetCaptureState();
@@ -806,24 +976,42 @@ chrome.runtime.onMessage.addListener((message) => {
 
 // --- Init ---
 
-chrome.runtime.sendMessage({ type: 'get-server-url' }, (response) => {
-  if (chrome.runtime.lastError) return;
-  if (response?.url) {
-    serverUrl = response.url;
-    serverUrlInput.value = response.url;
-  }
-  checkHealth();
-  fetchAnnotations();
-});
-
-chrome.tabs.onActivated.addListener(() => {
-  fetchAnnotations();
-});
-
-chrome.tabs.onUpdated.addListener((_tabId, changeInfo) => {
-  if (changeInfo.url) {
+(async () => {
+  scopeOverride = await loadScopeOverride();
+  await refreshCurrentTabDomain();
+  chrome.runtime.sendMessage({ type: 'get-server-url' }, (response) => {
+    if (chrome.runtime.lastError) return;
+    if (response?.url) {
+      serverUrl = response.url;
+      serverUrlInput.value = response.url;
+    }
+    checkHealth();
     fetchAnnotations();
+    refreshRecentDomains();
+  });
+})();
+
+function onTabChanged() {
+  const prev = currentTabDomain;
+  refreshCurrentTabDomain().then(() => {
+    if (currentTabDomain === prev) return;
+    fetchAnnotations();
+    if (!scopeDropdown.classList.contains('hidden')) renderScopeDropdown();
+  });
+}
+
+chrome.tabs.onActivated.addListener(onTabChanged);
+
+chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
+  if (!tab?.active) return;
+  if (changeInfo.url || changeInfo.status === 'complete') {
+    onTabChanged();
   }
+});
+
+chrome.windows.onFocusChanged.addListener((windowId) => {
+  if (windowId === chrome.windows.WINDOW_ID_NONE) return;
+  onTabChanged();
 });
 
 setInterval(checkHealth, 30000);

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,22 +16,25 @@ import (
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/dto"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/model"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/service"
-	"github.com/handgemacht-ai/annotation-plugin/server/internal/webhook"
 )
 
 const maxImageSize = 10 << 20 // 10MB
 
+type ChannelPusher interface {
+	PushChannel(ctx context.Context, ann *dto.AnnotationResponse)
+}
+
 type AnnotationController struct {
 	service *service.AnnotationService
-	webhook *webhook.Webhook
+	channel ChannelPusher
 	mode    string
 	modeMu  sync.RWMutex
 }
 
-func NewAnnotationController(svc *service.AnnotationService, wh *webhook.Webhook) *AnnotationController {
+func NewAnnotationController(svc *service.AnnotationService, ch ChannelPusher) *AnnotationController {
 	return &AnnotationController{
 		service: svc,
-		webhook: wh,
+		channel: ch,
 		mode:    "auto",
 	}
 }
@@ -99,10 +103,9 @@ func (c *AnnotationController) handleCreate(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if c.webhook != nil && c.channelMode() == "auto" {
+	if c.channel != nil && c.channelMode() == "auto" {
 		resp := dto.ToAnnotationResponse(ann)
-		data, _ := json.Marshal(resp)
-		c.webhook.Fire(r.Context(), data)
+		c.channel.PushChannel(r.Context(), &resp)
 	}
 
 	model.WriteJSON(w, http.StatusCreated, map[string]any{"data": dto.ToAnnotationResponse(ann)})
@@ -111,6 +114,7 @@ func (c *AnnotationController) handleCreate(w http.ResponseWriter, r *http.Reque
 func (c *AnnotationController) handleList(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	filters := model.ListFilters{
+		Project:    q.Get("project"),
 		Domain:     q.Get("domain"),
 		Worktree:   q.Get("worktree"),
 		Branch:     q.Get("branch"),
@@ -144,6 +148,20 @@ func (c *AnnotationController) handleList(w http.ResponseWriter, r *http.Request
 	model.WriteJSON(w, http.StatusOK, dto.AnnotationListResponse{
 		Data: items,
 		Meta: dto.ListMeta{Count: count},
+	})
+}
+
+func (c *AnnotationController) handleScopes(w http.ResponseWriter, r *http.Request) {
+	scopes, err := c.service.Scopes(r.Context(), r.URL.Query().Get("project"))
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	model.WriteJSON(w, http.StatusOK, map[string]any{
+		"data": map[string][]string{
+			"domains":  scopes.Domains,
+			"projects": scopes.Projects,
+		},
 	})
 }
 

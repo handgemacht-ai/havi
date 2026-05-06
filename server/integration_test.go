@@ -21,6 +21,7 @@ import (
 	"github.com/handgemacht-ai/scenarigo"
 	"github.com/handgemacht-ai/scenarigo/scenarigotest"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/controller"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/db"
@@ -28,7 +29,6 @@ import (
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/middleware"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/repo"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/service"
-	"github.com/handgemacht-ai/annotation-plugin/server/internal/webhook"
 	"github.com/handgemacht-ai/annotation-plugin/server/scenarios"
 )
 
@@ -1291,31 +1291,57 @@ func TestContextBodiesEmptyNotStored(t *testing.T) {
 
 // --- Channel & Push Tests ---
 
-func withWebhookServer(t *testing.T, handler func(ts *httptest.Server, webhookCalls *[][]byte)) {
+type capturedNotification struct {
+	Method string
+	Params map[string]any
+}
+
+func withMCPSubscriber(t *testing.T, handler func(ts *httptest.Server, notifs *[]capturedNotification, mu *sync.Mutex)) {
 	t.Helper()
-	var calls [][]byte
-	var mu sync.Mutex
-	webhookReceiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		mu.Lock()
-		calls = append(calls, body)
-		mu.Unlock()
-		w.WriteHeader(200)
-	}))
-	defer webhookReceiver.Close()
 
 	annotationRepo := repo.NewPostgresRepo(testPool)
 	svc := service.NewAnnotationService(annotationRepo, "http://test")
-	wh := webhook.NewWebhook(webhookReceiver.URL)
-	ctrl := controller.NewAnnotationController(svc, wh)
 	mcpModule := annotationmcp.New(svc)
+	ctrl := controller.NewAnnotationController(svc, mcpModule)
 	mux := http.NewServeMux()
 	controller.RegisterRoutes(mux, ctrl)
 	mux.Handle("/mcp", mcpModule.Handler())
+	mux.Handle("/mcp/", mcpModule.Handler())
 	ts := httptest.NewServer(middleware.CORS("", mux))
 	defer ts.Close()
 
-	handler(ts, &calls)
+	var notifs []capturedNotification
+	var mu sync.Mutex
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-subscriber", Version: "v0.0.1"}, &mcp.ClientOptions{
+		NotificationFallback: func(_ context.Context, method string, params []byte) {
+			var decoded map[string]any
+			_ = json.Unmarshal(params, &decoded)
+			mu.Lock()
+			notifs = append(notifs, capturedNotification{Method: method, Params: decoded})
+			mu.Unlock()
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: ts.URL + "/mcp"}, nil)
+	if err != nil {
+		t.Fatalf("mcp client connect: %v", err)
+	}
+	defer session.Close()
+
+	handler(ts, &notifs, &mu)
+}
+
+func channelNotifications(notifs []capturedNotification) []capturedNotification {
+	out := []capturedNotification{}
+	for _, n := range notifs {
+		if n.Method == "notifications/claude/channel" {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 func TestChannelModeDefault(t *testing.T) {
@@ -1377,26 +1403,10 @@ func TestChannelModeInvalid(t *testing.T) {
 	}
 }
 
-func TestBatchPushNoWebhook(t *testing.T) {
+func TestBatchPushFanOutToMCPSession(t *testing.T) {
 	truncateTables(t)
-
-	resp := doJSON(t, http.MethodPost, testServer.URL+"/api/channel/push", `{"annotation_ids":[]}`)
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", resp.StatusCode)
-	}
-	result := readBody(t, resp)
-	errData := result["error"].(map[string]any)
-	if errData["code"] != "webhook_not_configured" {
-		t.Errorf("error code = %v, want webhook_not_configured", errData["code"])
-	}
-}
-
-func TestBatchPushWithWebhook(t *testing.T) {
-	truncateTables(t)
-
 	seed(t, scenarios.AlphaAnnotation, scenarios.BetaAnnotation)
 
-	// Get IDs of seeded annotations
 	resp, err := http.Get(testServer.URL + "/api/annotations")
 	if err != nil {
 		t.Fatal(err)
@@ -1408,8 +1418,7 @@ func TestBatchPushWithWebhook(t *testing.T) {
 	}
 	firstID := data[0].(map[string]any)["id"].(string)
 
-	withWebhookServer(t, func(ts *httptest.Server, webhookCalls *[][]byte) {
-		// Push one by ID
+	withMCPSubscriber(t, func(ts *httptest.Server, notifs *[]capturedNotification, mu *sync.Mutex) {
 		resp := doJSON(t, http.MethodPost, ts.URL+"/api/channel/push",
 			fmt.Sprintf(`{"annotation_ids":["%s"]}`, firstID))
 		if resp.StatusCode != http.StatusOK {
@@ -1418,42 +1427,41 @@ func TestBatchPushWithWebhook(t *testing.T) {
 			t.Fatalf("push one: status = %d, body: %s", resp.StatusCode, string(body))
 		}
 		pushResult := readBody(t, resp)
-		pushed := int(pushResult["data"].(map[string]any)["pushed"].(float64))
-		if pushed != 1 {
-			t.Errorf("pushed = %d, want 1", pushed)
+		if int(pushResult["data"].(map[string]any)["pushed"].(float64)) != 1 {
+			t.Errorf("pushed = %v, want 1", pushResult["data"])
 		}
 
-		time.Sleep(100 * time.Millisecond)
-		if len(*webhookCalls) != 1 {
-			t.Errorf("webhook calls = %d, want 1", len(*webhookCalls))
+		time.Sleep(150 * time.Millisecond)
+		mu.Lock()
+		got := channelNotifications(*notifs)
+		mu.Unlock()
+		if len(got) != 1 {
+			t.Errorf("channel notifications = %d, want 1", len(got))
 		}
 
-		// Push all (empty IDs)
 		resp = doJSON(t, http.MethodPost, ts.URL+"/api/channel/push", `{"annotation_ids":[]}`)
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			t.Fatalf("push all: status = %d, body: %s", resp.StatusCode, string(body))
 		}
-		pushResult = readBody(t, resp)
-		pushed = int(pushResult["data"].(map[string]any)["pushed"].(float64))
-		if pushed != 2 {
-			t.Errorf("pushed = %d, want 2", pushed)
+		if int(readBody(t, resp)["data"].(map[string]any)["pushed"].(float64)) != 2 {
+			t.Error("expected pushed=2 on bulk push")
 		}
-
-		time.Sleep(100 * time.Millisecond)
-		if len(*webhookCalls) != 3 {
-			t.Errorf("webhook calls = %d, want 3", len(*webhookCalls))
+		time.Sleep(150 * time.Millisecond)
+		mu.Lock()
+		got = channelNotifications(*notifs)
+		mu.Unlock()
+		if len(got) != 3 {
+			t.Errorf("channel notifications = %d, want 3", len(got))
 		}
 	})
 }
 
 func TestBatchPushMissingIDs(t *testing.T) {
 	truncateTables(t)
-
 	seed(t, scenarios.DefaultAnnotation)
 
-	// Get the valid ID
 	resp, err := http.Get(testServer.URL + "/api/annotations")
 	if err != nil {
 		t.Fatal(err)
@@ -1462,8 +1470,7 @@ func TestBatchPushMissingIDs(t *testing.T) {
 	data := result["data"].([]any)
 	validID := data[0].(map[string]any)["id"].(string)
 
-	withWebhookServer(t, func(ts *httptest.Server, webhookCalls *[][]byte) {
-		// Push with a mix of valid ID, invalid UUID, and nonexistent UUID
+	withMCPSubscriber(t, func(ts *httptest.Server, notifs *[]capturedNotification, mu *sync.Mutex) {
 		resp := doJSON(t, http.MethodPost, ts.URL+"/api/channel/push",
 			fmt.Sprintf(`{"annotation_ids":["%s","not-a-uuid","%s"]}`, validID, uuid.New().String()))
 		if resp.StatusCode != http.StatusOK {
@@ -1471,25 +1478,23 @@ func TestBatchPushMissingIDs(t *testing.T) {
 			resp.Body.Close()
 			t.Fatalf("status = %d, body: %s", resp.StatusCode, string(body))
 		}
-		pushResult := readBody(t, resp)
-		pushed := int(pushResult["data"].(map[string]any)["pushed"].(float64))
-		if pushed != 1 {
-			t.Errorf("pushed = %d, want 1 (skip invalid + nonexistent)", pushed)
+		if int(readBody(t, resp)["data"].(map[string]any)["pushed"].(float64)) != 1 {
+			t.Error("pushed != 1; expected invalid + nonexistent IDs to be skipped")
 		}
-
-		time.Sleep(100 * time.Millisecond)
-		if len(*webhookCalls) != 1 {
-			t.Errorf("webhook calls = %d, want 1", len(*webhookCalls))
+		time.Sleep(150 * time.Millisecond)
+		mu.Lock()
+		got := channelNotifications(*notifs)
+		mu.Unlock()
+		if len(got) != 1 {
+			t.Errorf("channel notifications = %d, want 1", len(got))
 		}
 	})
 }
 
-func TestWebhookDTOShape(t *testing.T) {
+func TestChannelNotificationShape(t *testing.T) {
 	truncateTables(t)
-
 	seed(t, scenarios.DefaultAnnotation)
 
-	// Get the ID
 	resp, err := http.Get(testServer.URL + "/api/annotations")
 	if err != nil {
 		t.Fatal(err)
@@ -1498,7 +1503,7 @@ func TestWebhookDTOShape(t *testing.T) {
 	data := result["data"].([]any)
 	annID := data[0].(map[string]any)["id"].(string)
 
-	withWebhookServer(t, func(ts *httptest.Server, webhookCalls *[][]byte) {
+	withMCPSubscriber(t, func(ts *httptest.Server, notifs *[]capturedNotification, mu *sync.Mutex) {
 		resp := doJSON(t, http.MethodPost, ts.URL+"/api/channel/push",
 			fmt.Sprintf(`{"annotation_ids":["%s"]}`, annID))
 		if resp.StatusCode != http.StatusOK {
@@ -1508,37 +1513,29 @@ func TestWebhookDTOShape(t *testing.T) {
 		}
 		resp.Body.Close()
 
-		time.Sleep(100 * time.Millisecond)
-
-		if len(*webhookCalls) != 1 {
-			t.Fatalf("webhook calls = %d, want 1", len(*webhookCalls))
+		time.Sleep(150 * time.Millisecond)
+		mu.Lock()
+		got := channelNotifications(*notifs)
+		mu.Unlock()
+		if len(got) != 1 {
+			t.Fatalf("channel notifications = %d, want 1", len(got))
 		}
 
-		var dto map[string]any
-		if err := json.Unmarshal((*webhookCalls)[0], &dto); err != nil {
-			t.Fatalf("unmarshal webhook body: %v", err)
+		params := got[0].Params
+		if _, ok := params["content"]; !ok {
+			t.Error("missing content field in notification params")
 		}
-
-		requiredFields := []string{"id", "annotation", "domain", "worktree", "branch", "state", "motivation", "created_at", "updated_at"}
-		for _, field := range requiredFields {
-			if _, ok := dto[field]; !ok {
-				t.Errorf("missing field %q in webhook DTO", field)
+		meta, ok := params["meta"].(map[string]any)
+		if !ok {
+			t.Fatal("missing meta object in notification params")
+		}
+		for _, field := range []string{"annotation_id", "domain", "worktree", "branch", "page_url"} {
+			if _, ok := meta[field]; !ok {
+				t.Errorf("missing field %q in notification meta", field)
 			}
 		}
-
-		if dto["id"] != annID {
-			t.Errorf("dto.id = %v, want %s", dto["id"], annID)
-		}
-
-		ann, ok := dto["annotation"].(map[string]any)
-		if !ok {
-			t.Fatal("annotation field is not a JSON object")
-		}
-		if ann["@context"] != "http://www.w3.org/ns/anno.jsonld" {
-			t.Errorf("annotation.@context = %v", ann["@context"])
-		}
-		if ann["type"] != "Annotation" {
-			t.Errorf("annotation.type = %v", ann["type"])
+		if meta["annotation_id"] != annID {
+			t.Errorf("meta.annotation_id = %v, want %s", meta["annotation_id"], annID)
 		}
 	})
 }

@@ -15,7 +15,6 @@ import (
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/middleware"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/repo"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/service"
-	"github.com/handgemacht-ai/annotation-plugin/server/internal/webhook"
 )
 
 func main() {
@@ -30,7 +29,6 @@ func main() {
 	}
 
 	corsOrigins := os.Getenv("CORS_ORIGINS")
-	webhookURL := os.Getenv("WEBHOOK_URL")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -48,10 +46,9 @@ func main() {
 	annotationRepo := repo.NewPostgresRepo(pool)
 	baseURL := "http://localhost:" + port
 	annotationService := service.NewAnnotationService(annotationRepo, baseURL)
-	wh := webhook.NewWebhook(webhookURL)
-	ctrl := controller.NewAnnotationController(annotationService, wh)
 
 	mcpModule := annotationmcp.New(annotationService)
+	ctrl := controller.NewAnnotationController(annotationService, mcpModule)
 
 	mux := http.NewServeMux()
 	controller.RegisterRoutes(mux, ctrl)

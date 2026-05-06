@@ -15,9 +15,15 @@ type Module struct {
 
 func New(svc *service.AnnotationService) *Module {
 	server := mcp.NewServer(&mcp.Implementation{
-		Name:    "annotation-mcp",
+		Name:    "havi",
 		Version: "1.0.0",
-	}, nil)
+	}, &mcp.ServerOptions{
+		Capabilities: &mcp.ServerCapabilities{
+			Experimental: map[string]any{
+				"claude/channel": map[string]any{},
+			},
+		},
+	})
 
 	registerTools(server, svc)
 

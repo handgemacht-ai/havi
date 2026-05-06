@@ -23,6 +23,7 @@ type Annotation struct {
 }
 
 type ListFilters struct {
+	Project    string
 	Domain     string
 	Worktree   string
 	Branch     string
@@ -32,4 +33,9 @@ type ListFilters struct {
 	Creator    string
 	Limit      int
 	Offset     int
+}
+
+type Scopes struct {
+	Domains  []string
+	Projects []string
 }

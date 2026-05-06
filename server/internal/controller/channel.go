@@ -37,8 +37,8 @@ func (c *AnnotationController) handleSetChannelMode(w http.ResponseWriter, r *ht
 }
 
 func (c *AnnotationController) handlePush(w http.ResponseWriter, r *http.Request) {
-	if c.webhook == nil {
-		model.WriteError(w, http.StatusBadRequest, "webhook_not_configured", "WEBHOOK_URL is not set")
+	if c.channel == nil {
+		model.WriteError(w, http.StatusInternalServerError, "channel_unavailable", "channel push is not configured")
 		return
 	}
 
@@ -61,8 +61,7 @@ func (c *AnnotationController) handlePush(w http.ResponseWriter, r *http.Request
 		}
 		for i := range annotations {
 			resp := dto.ToAnnotationResponse(&annotations[i])
-			data, _ := json.Marshal(resp)
-			c.webhook.Fire(ctx, data)
+			c.channel.PushChannel(ctx, &resp)
 			pushed++
 		}
 	} else {
@@ -76,8 +75,7 @@ func (c *AnnotationController) handlePush(w http.ResponseWriter, r *http.Request
 				continue
 			}
 			resp := dto.ToAnnotationResponse(ann)
-			data, _ := json.Marshal(resp)
-			c.webhook.Fire(ctx, data)
+			c.channel.PushChannel(ctx, &resp)
 			pushed++
 		}
 	}

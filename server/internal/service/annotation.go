@@ -111,6 +111,10 @@ func (s *AnnotationService) Get(ctx context.Context, id uuid.UUID) (*model.Annot
 	return s.repo.Get(ctx, id)
 }
 
+func (s *AnnotationService) Scopes(ctx context.Context, project string) (model.Scopes, error) {
+	return s.repo.Scopes(ctx, project)
+}
+
 func (s *AnnotationService) Update(ctx context.Context, id uuid.UUID, w3cUpdate *model.W3CAnnotation) (*model.Annotation, error) {
 	existing, err := s.repo.Get(ctx, id)
 	if err != nil {

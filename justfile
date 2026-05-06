@@ -35,9 +35,6 @@ status:
 server:
     cd server && go run ./cmd/server
 
-channel:
-    cd channel && bun run src/server.ts
-
 db-migrate:
     @echo "Not implemented — will be added in Epic 2"
 

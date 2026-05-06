@@ -248,6 +248,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
     }
 
+    case 'get-scopes': {
+      const project = message.data?.project;
+      const qs = project ? `?project=${encodeURIComponent(project)}` : '';
+      apiRequest(`/api/annotations/scopes${qs}`).then(sendResponse);
+      return true;
+    }
+
     case 'update-annotation': {
       const { id, annotation } = message.data;
       apiRequest(`/api/annotations/${id}`, {
