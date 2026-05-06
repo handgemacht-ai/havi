@@ -1,14 +1,30 @@
 const captureBtn = document.getElementById('capture-btn');
+const captureBtnIcon = captureBtn.querySelector('svg').cloneNode(true);
+const pickElementBtn = document.getElementById('pick-element-btn');
+const pickElementBtnIcon = pickElementBtn.querySelector('svg').cloneNode(true);
 const settingsToggle = document.getElementById('settings-toggle');
 const settingsPanel = document.getElementById('settings-panel');
 const serverUrlInput = document.getElementById('server-url-input');
 const saveUrlBtn = document.getElementById('save-url-btn');
 const settingsStatus = document.getElementById('settings-status');
 const statusDot = document.getElementById('status-dot');
+const statusLabel = document.getElementById('status-label');
 const connectionBanner = document.getElementById('connection-banner');
+const domainValue = document.getElementById('domain-value');
 const annotationList = document.getElementById('annotation-list');
 const emptyState = document.getElementById('empty-state');
+const emptyTitle = document.getElementById('empty-title');
+const emptyBody = document.getElementById('empty-body');
 const filterBar = document.getElementById('filter-bar');
+const filterButtons = filterBar.querySelectorAll('.filter-btn');
+const filterCounts = {
+  all: filterBar.querySelector('[data-count="all"]'),
+  open: filterBar.querySelector('[data-count="open"]'),
+  resolved: filterBar.querySelector('[data-count="resolved"]'),
+};
+const listMeta = document.getElementById('list-meta');
+const listMetaState = document.getElementById('list-meta-state');
+const listMetaCount = document.getElementById('list-meta-count');
 const captureAlert = document.getElementById('capture-alert');
 const captureAlertMessage = document.getElementById('capture-alert-message');
 const captureAlertAction = document.getElementById('capture-alert-action');
@@ -19,24 +35,39 @@ let currentFilter = '';
 let expandedId = null;
 let editingId = null;
 let annotations = [];
+let captureMode = null;
 
-// --- Settings ---
+const BROAD_ORIGIN_PATTERNS = ['<all_urls>'];
 
-const pickElementBtn = document.getElementById('pick-element-btn');
-const captureBtnIcon = captureBtn.querySelector('svg').cloneNode(true);
-const pickElementBtnIcon = pickElementBtn.querySelector('svg').cloneNode(true);
-let captureMode = null; // null | 'capture' | 'pick-element'
+// --- Capture button state ---
 
 function resetCaptureState() {
   captureMode = null;
   captureBtn.textContent = '';
   captureBtn.appendChild(captureBtnIcon.cloneNode(true));
-  captureBtn.appendChild(document.createTextNode('Capture'));
+  captureBtn.appendChild(document.createTextNode('Capture region'));
   captureBtn.classList.remove('cancel');
   pickElementBtn.textContent = '';
   pickElementBtn.appendChild(pickElementBtnIcon.cloneNode(true));
-  pickElementBtn.appendChild(document.createTextNode('Pick element'));
   pickElementBtn.classList.remove('cancel');
+}
+
+function enterCancelMode(which) {
+  if (which === 'capture') {
+    captureMode = 'capture';
+    captureBtn.textContent = '';
+    captureBtn.appendChild(captureBtnIcon.cloneNode(true));
+    captureBtn.appendChild(document.createTextNode('Cancel capture'));
+    captureBtn.classList.add('cancel');
+  } else {
+    captureMode = 'pick-element';
+    pickElementBtn.textContent = '';
+    pickElementBtn.appendChild(pickElementBtnIcon.cloneNode(true));
+    const span = document.createElement('span');
+    span.textContent = 'Cancel capture';
+    pickElementBtn.appendChild(span);
+    pickElementBtn.classList.add('cancel');
+  }
 }
 
 function cancelActiveCapture() {
@@ -50,6 +81,8 @@ function cancelActiveCapture() {
     }
   });
 }
+
+// --- Capture alerts ---
 
 function hideCaptureAlert() {
   captureAlert.classList.add('hidden');
@@ -72,8 +105,6 @@ function showCaptureAlert(message, action) {
 
 captureAlertDismiss.addEventListener('click', hideCaptureAlert);
 
-const BROAD_ORIGIN_PATTERNS = ['<all_urls>'];
-
 function startCaptureRequest(messageType, label) {
   hideCaptureAlert();
   chrome.runtime.sendMessage({ type: messageType }, (response) => {
@@ -87,7 +118,6 @@ function startCaptureRequest(messageType, label) {
 function handleCaptureFailure(messageType, label, response) {
   const error = response?.error || chrome.runtime.lastError?.message || 'no response';
   const code = response?.code;
-  const origin = response?.origin ?? null;
 
   if (code === 'permission_required') {
     showCaptureAlert(
@@ -118,10 +148,7 @@ function requestPermissionAndRetry(messageType, label) {
       showCaptureAlert(`${label} needs site access. Permission was not granted.`);
       return;
     }
-    captureMode = messageType === 'start-capture-from-panel' ? 'capture' : 'pick-element';
-    const btn = messageType === 'start-capture-from-panel' ? captureBtn : pickElementBtn;
-    btn.textContent = 'Cancel capture';
-    btn.classList.add('cancel');
+    enterCancelMode(messageType === 'start-capture-from-panel' ? 'capture' : 'pick-element');
     startCaptureRequest(messageType, label);
   });
 }
@@ -131,11 +158,7 @@ captureBtn.addEventListener('click', () => {
     cancelActiveCapture();
     return;
   }
-
-  captureMode = 'capture';
-  captureBtn.textContent = 'Cancel capture';
-  captureBtn.classList.add('cancel');
-
+  enterCancelMode('capture');
   startCaptureRequest('start-capture-from-panel', 'Capture');
 });
 
@@ -144,21 +167,21 @@ pickElementBtn.addEventListener('click', () => {
     cancelActiveCapture();
     return;
   }
-
-  captureMode = 'pick-element';
-  pickElementBtn.textContent = 'Cancel capture';
-  pickElementBtn.classList.add('cancel');
-
+  enterCancelMode('pick-element');
   startCaptureRequest('start-pick-element-from-panel', 'Pick element');
 });
 
+resetCaptureState();
+
+// --- Settings ---
+
 function showStatus(message, type) {
   settingsStatus.textContent = message;
-  settingsStatus.className = type;
+  settingsStatus.className = `setting-hint${type ? ' ' + type : ''}`;
   if (type === 'success') {
     setTimeout(() => {
-      settingsStatus.textContent = '';
-      settingsStatus.className = '';
+      settingsStatus.textContent = 'Non-localhost hosts will request browser permission.';
+      settingsStatus.className = 'setting-hint';
     }, 2000);
   }
 }
@@ -176,12 +199,12 @@ saveUrlBtn.addEventListener('click', async () => {
   const url = serverUrlInput.value.trim();
 
   if (!isValidUrl(url)) {
-    serverUrlInput.classList.add('error');
+    serverUrlInput.classList.add('invalid');
     showStatus('URL must start with http:// or https://', 'error');
     return;
   }
 
-  serverUrlInput.classList.remove('error');
+  serverUrlInput.classList.remove('invalid');
 
   try {
     const parsed = new URL(url);
@@ -217,21 +240,23 @@ saveUrlBtn.addEventListener('click', async () => {
 });
 
 serverUrlInput.addEventListener('input', () => {
-  serverUrlInput.classList.remove('error');
-  settingsStatus.textContent = '';
-  settingsStatus.className = '';
+  serverUrlInput.classList.remove('invalid');
 });
 
 // --- Health Check ---
 
+function setStatus(connected) {
+  statusDot.classList.toggle('disconnected', !connected);
+  statusLabel.textContent = connected ? 'HAVI · ready' : 'Server unreachable';
+  connectionBanner.classList.toggle('hidden', connected);
+}
+
 function checkHealth() {
   chrome.runtime.sendMessage({ type: 'check-health' }, (response) => {
     if (chrome.runtime.lastError || !response?.ok) {
-      statusDot.classList.add('disconnected');
-      connectionBanner.classList.remove('hidden');
+      setStatus(false);
     } else {
-      statusDot.classList.remove('disconnected');
-      connectionBanner.classList.add('hidden');
+      setStatus(true);
     }
   });
 }
@@ -266,6 +291,15 @@ function getViewport(ann) {
   return match ? match[1] : null;
 }
 
+function getViewportClass(viewport) {
+  if (!viewport) return null;
+  const w = parseInt(viewport.split('x')[0], 10);
+  if (Number.isNaN(w)) return null;
+  if (w <= 480) return 'mobile';
+  if (w <= 1024) return 'tablet';
+  return 'desktop';
+}
+
 function timeAgo(dateStr) {
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
@@ -293,13 +327,17 @@ function getCurrentDomain() {
   });
 }
 
+function initials(name) {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/);
+  return (parts[0]?.[0] || '?').toUpperCase();
+}
+
 // --- DOM Construction (safe, no innerHTML with user data) ---
 
 function svgEl(tag, attrs) {
   const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
-  if (attrs) {
-    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
-  }
+  if (attrs) for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
   return node;
 }
 
@@ -320,27 +358,87 @@ function el(tag, attrs, ...children) {
     }
   }
   for (const child of children) {
+    if (child == null) continue;
     if (typeof child === 'string') node.appendChild(document.createTextNode(child));
-    else if (child) node.appendChild(child);
+    else node.appendChild(child);
   }
   return node;
+}
+
+function viewportIcon(klass) {
+  if (klass === 'mobile') {
+    return svg(
+      { width: '10', height: '10', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' },
+      svgEl('rect', { x: '5', y: '2', width: '14', height: '20', rx: '2', ry: '2' }),
+      svgEl('line', { x1: '12', y1: '18', x2: '12.01', y2: '18' }),
+    );
+  }
+  if (klass === 'tablet') {
+    return svg(
+      { width: '10', height: '10', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' },
+      svgEl('rect', { x: '4', y: '2', width: '16', height: '20', rx: '2', ry: '2' }),
+      svgEl('line', { x1: '12', y1: '18', x2: '12.01', y2: '18' }),
+    );
+  }
+  return svg(
+    { width: '10', height: '10', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' },
+    svgEl('rect', { x: '2', y: '3', width: '20', height: '14', rx: '2', ry: '2' }),
+    svgEl('line', { x1: '8', y1: '21', x2: '16', y2: '21' }),
+    svgEl('line', { x1: '12', y1: '17', x2: '12', y2: '21' }),
+  );
+}
+
+function branchIcon() {
+  return svg(
+    { width: '10', height: '10', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' },
+    svgEl('line', { x1: '6', y1: '3', x2: '6', y2: '15' }),
+    svgEl('circle', { cx: '18', cy: '6', r: '3' }),
+    svgEl('circle', { cx: '6', cy: '18', r: '3' }),
+    svgEl('path', { d: 'M18 9a9 9 0 0 1-9 9' }),
+  );
+}
+
+function checkIcon(size) {
+  return svg(
+    { width: String(size), height: String(size), viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '3', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' },
+    svgEl('polyline', { points: '20 6 9 17 4 12' }),
+  );
+}
+
+function chevronIcon() {
+  return svg(
+    { class: 'card-chevron', width: '14', height: '14', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' },
+    svgEl('polyline', { points: '6 9 12 15 18 9' }),
+  );
 }
 
 // --- Fetch & Render ---
 
 async function fetchAnnotations() {
   const domain = await getCurrentDomain();
+  domainValue.textContent = '';
+  if (domain) {
+    domainValue.classList.remove('muted');
+    const globe = svg(
+      { width: '11', height: '11', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' },
+      svgEl('circle', { cx: '12', cy: '12', r: '10' }),
+      svgEl('line', { x1: '2', y1: '12', x2: '22', y2: '12' }),
+      svgEl('path', { d: 'M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z' }),
+    );
+    domainValue.appendChild(globe);
+    domainValue.appendChild(document.createTextNode(domain));
+  } else {
+    domainValue.classList.add('muted');
+    domainValue.textContent = 'No domain detected';
+  }
+
   const filters = {};
   if (domain) filters.domain = domain;
-  if (currentFilter) filters.state = currentFilter;
 
   chrome.runtime.sendMessage({ type: 'list-annotations', data: filters }, (response) => {
-    if (chrome.runtime.lastError) {
-      showEmptyState('error');
-      return;
-    }
-    if (!response?.ok) {
-      showEmptyState('error');
+    if (chrome.runtime.lastError || !response?.ok) {
+      annotations = [];
+      renderList('error');
       return;
     }
     annotations = response.data || [];
@@ -348,44 +446,59 @@ async function fetchAnnotations() {
   });
 }
 
-function showEmptyState(type) {
-  const cards = annotationList.querySelectorAll('.annotation-card');
-  cards.forEach((c) => c.remove());
-
-  emptyState.style.display = 'flex';
-  const msg = emptyState.querySelector('p');
-  const hint = document.getElementById('empty-hint');
-
-  if (type === 'error') {
-    msg.textContent = 'Cannot connect to server.';
-    hint.textContent = 'Check settings.';
-  } else if (type === 'filtered') {
-    const label = currentFilter || 'matching';
-    msg.textContent = `No ${label} annotations.`;
-    hint.textContent = '';
-  } else {
-    msg.textContent = 'No annotations yet.';
-    hint.textContent = '';
-    hint.appendChild(document.createTextNode('Press '));
-    const kbd = document.createElement('kbd');
-    kbd.textContent = 'Ctrl+Shift+A';
-    hint.appendChild(kbd);
-    hint.appendChild(document.createTextNode(' to capture your first annotation.'));
-  }
+function updateCounts() {
+  filterCounts.all.textContent = String(annotations.length);
+  filterCounts.open.textContent = String(annotations.filter((a) => a.state === 'open').length);
+  filterCounts.resolved.textContent = String(annotations.filter((a) => a.state === 'resolved').length);
 }
 
-function renderList() {
+function visibleAnnotations() {
+  if (!currentFilter) return annotations;
+  return annotations.filter((a) => a.state === currentFilter);
+}
+
+function renderList(errorState) {
   const existing = annotationList.querySelectorAll('.annotation-card');
   existing.forEach((c) => c.remove());
 
-  if (annotations.length === 0) {
-    showEmptyState(currentFilter ? 'filtered' : 'default');
+  updateCounts();
+
+  if (errorState === 'error') {
+    listMeta.classList.add('hidden');
+    emptyState.classList.remove('hidden');
+    emptyTitle.textContent = 'Cannot reach server';
+    emptyBody.textContent = 'Check the URL in settings and confirm the HAVI server is running.';
     return;
   }
 
-  emptyState.style.display = 'none';
+  const visible = visibleAnnotations();
 
-  for (const ann of annotations) {
+  if (visible.length === 0) {
+    listMeta.classList.add('hidden');
+    emptyState.classList.remove('hidden');
+    if (currentFilter) {
+      emptyTitle.textContent = 'No matches';
+      emptyBody.textContent = `No ${currentFilter} annotations on this domain.`;
+    } else {
+      emptyTitle.textContent = 'No annotations yet';
+      emptyBody.textContent = '';
+      emptyBody.appendChild(document.createTextNode('Press '));
+      emptyBody.appendChild(el('kbd', null, 'Ctrl'));
+      emptyBody.appendChild(el('kbd', null, 'Shift'));
+      emptyBody.appendChild(el('kbd', null, 'A'));
+      emptyBody.appendChild(document.createTextNode(' or use '));
+      emptyBody.appendChild(el('strong', null, 'Capture region'));
+      emptyBody.appendChild(document.createTextNode(' above to grab your first one.'));
+    }
+    return;
+  }
+
+  emptyState.classList.add('hidden');
+  listMeta.classList.remove('hidden');
+  listMetaState.textContent = currentFilter ? currentFilter : 'All';
+  listMetaCount.textContent = String(visible.length);
+
+  for (const ann of visible) {
     annotationList.appendChild(createCard(ann));
   }
 }
@@ -393,10 +506,15 @@ function renderList() {
 function createCard(ann) {
   const comment = getComment(ann);
   const viewport = getViewport(ann);
+  const viewportClass = getViewportClass(viewport);
   const elementText = getElementText(ann);
   const cssSelector = getCssSelector(ann);
   const isExpanded = expandedId === ann.id;
+  const creatorName = ann.creator || ann.annotation?.creator?.name || '';
+  const branch = ann.branch || '';
+  const worktree = ann.worktree || '';
 
+  // Thumbnail
   const thumbImg = el('img', {
     className: 'card-thumb',
     src: `${serverUrl}/api/annotations/${ann.id}/image`,
@@ -405,7 +523,7 @@ function createCard(ann) {
   });
   const thumbPlaceholder = el('div', { className: 'card-thumb-placeholder', style: 'display:none' });
   thumbPlaceholder.appendChild(svg(
-    { width: '20', height: '20', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5' },
+    { width: '18', height: '18', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5' },
     svgEl('rect', { x: '3', y: '3', width: '18', height: '18', rx: '2' }),
     svgEl('circle', { cx: '8.5', cy: '8.5', r: '1.5' }),
     svgEl('path', { d: 'm21 15-5-5L5 21' }),
@@ -415,27 +533,44 @@ function createCard(ann) {
     thumbPlaceholder.style.display = 'flex';
   });
 
-  const metaChips = el('div', { className: 'card-meta' },
-    el('span', { className: `chip chip-state chip-${ann.state}` }, ann.state),
-    ...(viewport ? [el('span', { className: 'chip' }, viewport)] : []),
-    el('span', { className: 'chip chip-time' }, timeAgo(ann.created_at)),
+  const thumbWrap = el('div', { className: 'card-thumb-wrap' }, thumbImg, thumbPlaceholder);
+  if (ann.state === 'resolved') {
+    thumbWrap.appendChild(el('div', { className: 'thumb-resolved-mask' }, checkIcon(14)));
+  }
+
+  // Top row: state pill, viewport chip, time
+  const topRow = el('div', { className: 'card-top-row' },
+    el('span', { className: `state-pill state-${ann.state}` }, ann.state),
+    viewport ? el('span', { className: 'vp-chip' }, viewportIcon(viewportClass), viewport) : null,
+    el('span', { className: 'card-time' }, timeAgo(ann.created_at)),
   );
 
-  const chevronSvg = svg(
-    { class: `card-chevron${isExpanded ? ' expanded' : ''}`, width: '16', height: '16', viewBox: '0 0 16 16',
-      fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' },
-    svgEl('path', { d: 'm4 6 4 4 4-4' }),
-  );
+  // Comment
+  const commentEl = el('p', { className: 'card-comment' }, comment);
+
+  // Meta row: creator, branch
+  const metaRow = el('div', { className: 'card-meta-row' });
+  if (creatorName) {
+    metaRow.appendChild(el('span', { className: 'meta-chip' },
+      el('span', { className: 'mini-avatar' }, initials(creatorName)),
+      creatorName,
+    ));
+  }
+  if (branch) {
+    metaRow.appendChild(el('span', { className: 'meta-chip' }, branchIcon(), branch));
+  }
+
+  const cardBody = el('div', { className: 'card-body' }, topRow, commentEl, metaRow);
+  const chevron = chevronIcon();
+  if (isExpanded) chevron.classList.add('expanded');
 
   const summary = el('div', { className: 'card-summary', onClick: () => toggleExpand(ann.id) },
-    el('div', { className: 'card-thumb-wrap' }, thumbImg, thumbPlaceholder),
-    el('div', { className: 'card-body' },
-      el('p', { className: 'card-comment' }, comment.length > 80 ? comment.slice(0, 80) + '...' : comment),
-      metaChips,
-    ),
-    chevronSvg,
+    thumbWrap,
+    cardBody,
+    chevron,
   );
 
+  // Detail view
   const detailImg = el('img', {
     className: 'detail-image',
     src: `${serverUrl}/api/annotations/${ann.id}/image`,
@@ -445,62 +580,81 @@ function createCard(ann) {
   detailImg.addEventListener('error', () => { detailImg.style.display = 'none'; });
 
   const commentWrap = el('div', { className: 'detail-comment-wrap', id: `comment-wrap-${ann.id}` },
-    el('p', { className: 'detail-comment' }, comment),
+    el('div', { className: 'detail-comment-head' },
+      el('span', { className: 'eyebrow' }, 'COMMENT'),
+      el('button', { className: 'link-btn', onClick: (e) => { e.stopPropagation(); startEdit(ann); } }, 'Edit'),
+    ),
+    el('p', { className: 'detail-comment' }, comment || ''),
   );
 
-  const metaDl = document.createElement('dl');
-  metaDl.className = 'detail-meta';
-  const metaEntries = [
-    ['Domain', ann.domain],
-    ['Creator', ann.creator],
-    ['Created', new Date(ann.created_at).toLocaleString()],
+  // Element block
+  const elementBlock = el('div', { className: 'detail-element' });
+  if (cssSelector || elementText) {
+    elementBlock.appendChild(el('span', { className: 'eyebrow' }, 'ELEMENT'));
+    if (cssSelector) {
+      elementBlock.appendChild(el('code', { className: 'detail-selector' }, cssSelector));
+    }
+    if (elementText) {
+      const truncated = elementText.length > 280 ? elementText.slice(0, 280) + '…' : elementText;
+      elementBlock.appendChild(el('pre', { className: 'detail-element-text' }, truncated));
+    }
+  }
+
+  // Metadata grid
+  const metaDl = el('dl', { className: 'meta-dl' });
+  const entries = [
+    ['DOMAIN', ann.domain],
+    ['CREATOR', creatorName],
+    ['CREATED', new Date(ann.created_at).toLocaleString()],
+    ['STATE', ann.state],
   ];
-  if (viewport) metaEntries.push(['Viewport', viewport]);
-  for (const [label, value] of metaEntries) {
-    metaDl.appendChild(el('dt', null, label));
-    metaDl.appendChild(el('dd', null, value));
-  }
-  const stateDt = el('dt', null, 'State');
-  const stateDd = el('dd', null, el('span', { className: `chip chip-state chip-${ann.state}` }, ann.state));
-  metaDl.appendChild(stateDt);
-  metaDl.appendChild(stateDd);
-
-  const selectorParts = [];
-  if (elementText) {
-    selectorParts.push(el('div', { className: 'detail-selector' },
-      el('span', { className: 'detail-selector-label' }, 'Element text'),
-      el('pre', { className: 'detail-selector-value' }, elementText.length > 200 ? elementText.slice(0, 200) + '...' : elementText),
-    ));
-  }
-  if (cssSelector) {
-    selectorParts.push(el('div', { className: 'detail-selector' },
-      el('span', { className: 'detail-selector-label' }, 'CSS selector'),
-      el('code', { className: 'detail-selector-value detail-selector-code' }, cssSelector),
+  if (viewport) entries.push(['VIEWPORT', viewport]);
+  if (ann.motivation) entries.push(['MOTIVATION', ann.motivation]);
+  if (ann.project) entries.push(['PROJECT', ann.project]);
+  if (worktree) entries.push(['WORKTREE', worktree]);
+  if (branch) entries.push(['BRANCH', branch]);
+  for (const [k, v] of entries) {
+    if (v == null || v === '') continue;
+    metaDl.appendChild(el('div', null,
+      el('dt', null, k),
+      el('dd', null, String(v)),
     ));
   }
 
-  const deleteConfirm = el('div', { className: 'delete-confirm hidden', id: `delete-confirm-${ann.id}` },
-    el('span', null, 'Delete this annotation?'),
-    el('button', { className: 'btn-confirm-delete', onClick: (e) => { e.stopPropagation(); deleteAnnotation(ann.id); } }, 'Confirm'),
-    el('button', { className: 'btn-cancel-delete', onClick: (e) => { e.stopPropagation(); hideDeleteConfirm(ann.id); } }, 'Cancel'),
+  const deleteConfirm = el('div', { className: 'confirm-strip hidden', id: `delete-confirm-${ann.id}` },
+    el('span', null, "Delete this annotation? This can't be undone."),
+    el('div', { className: 'confirm-actions' },
+      el('button', { className: 'btn btn-ghost btn-sm', onClick: (e) => { e.stopPropagation(); hideDeleteConfirm(ann.id); } }, 'Cancel'),
+      el('button', { className: 'btn btn-danger btn-sm', onClick: (e) => { e.stopPropagation(); deleteAnnotation(ann.id); } }, 'Delete'),
+    ),
+  );
+
+  const actions = el('div', { className: 'detail-actions' },
+    el('button', { className: 'btn btn-outline btn-sm', onClick: (e) => { e.stopPropagation(); startEdit(ann); } }, 'Edit'),
+    el('div', { className: 'action-spacer' }),
+    el('button', { className: 'icon-btn sm danger', onClick: (e) => { e.stopPropagation(); showDeleteConfirm(ann.id); }, title: 'Delete' },
+      svg(
+        { width: '12', height: '12', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' },
+        svgEl('polyline', { points: '3 6 5 6 21 6' }),
+        svgEl('path', { d: 'M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6' }),
+        svgEl('path', { d: 'M10 11v6' }),
+        svgEl('path', { d: 'M14 11v6' }),
+      ),
+    ),
   );
 
   const detail = el('div', { className: `card-detail${isExpanded ? ' open' : ''}` },
-    detailImg,
     el('div', { className: 'detail-content' },
+      detailImg,
       commentWrap,
-      ...selectorParts,
+      (cssSelector || elementText) ? elementBlock : null,
       metaDl,
-      el('div', { className: 'detail-actions' },
-        el('button', { className: 'btn-edit', onClick: (e) => { e.stopPropagation(); startEdit(ann); } }, 'Edit'),
-        el('button', { className: 'btn-delete', onClick: (e) => { e.stopPropagation(); showDeleteConfirm(ann.id); } }, 'Delete'),
-      ),
+      actions,
       deleteConfirm,
     ),
   );
 
-  const card = el('div', { className: 'annotation-card', dataset: { id: ann.id } }, summary, detail);
-  return card;
+  return el('div', { className: `annotation-card${isExpanded ? ' expanded' : ''}`, dataset: { id: ann.id } }, summary, detail);
 }
 
 // --- Expand/Collapse ---
@@ -519,9 +673,11 @@ function toggleExpand(id) {
     if (isTarget && !wasExpanded) {
       detail.classList.add('open');
       chevron.classList.add('expanded');
+      card.classList.add('expanded');
     } else {
       detail.classList.remove('open');
       chevron.classList.remove('expanded');
+      card.classList.remove('expanded');
     }
   });
 }
@@ -531,24 +687,35 @@ function toggleExpand(id) {
 function startEdit(ann) {
   editingId = ann.id;
   const wrap = document.getElementById(`comment-wrap-${ann.id}`);
+  if (!wrap) return;
   wrap.textContent = '';
 
   const textarea = el('textarea', { className: 'edit-textarea' }, getComment(ann));
   const actions = el('div', { className: 'edit-actions' },
-    el('button', { className: 'btn-save-edit', onClick: () => saveEdit(ann) }, 'Save'),
-    el('button', { className: 'btn-cancel-edit', onClick: () => cancelEdit(ann) }, 'Cancel'),
+    el('button', { className: 'btn btn-ghost btn-sm', onClick: () => cancelEdit(ann) }, 'Cancel'),
+    el('button', { className: 'btn btn-primary btn-sm', onClick: () => saveEdit(ann) }, 'Save'),
   );
 
+  wrap.appendChild(el('span', { className: 'eyebrow' }, 'EDIT COMMENT'));
   wrap.appendChild(textarea);
   wrap.appendChild(actions);
   textarea.focus();
 }
 
+function renderViewComment(ann) {
+  const wrap = document.getElementById(`comment-wrap-${ann.id}`);
+  if (!wrap) return;
+  wrap.textContent = '';
+  wrap.appendChild(el('div', { className: 'detail-comment-head' },
+    el('span', { className: 'eyebrow' }, 'COMMENT'),
+    el('button', { className: 'link-btn', onClick: (e) => { e.stopPropagation(); startEdit(ann); } }, 'Edit'),
+  ));
+  wrap.appendChild(el('p', { className: 'detail-comment' }, getComment(ann) || ''));
+}
+
 function cancelEdit(ann) {
   editingId = null;
-  const wrap = document.getElementById(`comment-wrap-${ann.id}`);
-  wrap.textContent = '';
-  wrap.appendChild(el('p', { className: 'detail-comment' }, getComment(ann)));
+  renderViewComment(ann);
 }
 
 function saveEdit(ann) {
@@ -578,10 +745,9 @@ function saveEdit(ann) {
   }, (response) => {
     editingId = null;
     if (chrome.runtime.lastError || !response?.ok) {
-      const wrap = document.getElementById(`comment-wrap-${ann.id}`);
-      if (wrap) {
-        const err = el('p', { className: 'edit-error' }, 'Failed to save. Try again.');
-        wrap.appendChild(err);
+      const w = document.getElementById(`comment-wrap-${ann.id}`);
+      if (w) {
+        w.appendChild(el('p', { className: 'edit-error' }, 'Failed to save. Try again.'));
       }
       return;
     }
@@ -620,20 +786,18 @@ filterBar.addEventListener('click', (e) => {
   const btn = e.target.closest('.filter-btn');
   if (!btn) return;
 
-  filterBar.querySelectorAll('.filter-btn').forEach((b) => b.classList.remove('active'));
+  filterButtons.forEach((b) => b.classList.remove('active'));
   btn.classList.add('active');
   currentFilter = btn.dataset.state || '';
-  fetchAnnotations();
+  renderList();
 });
 
 // --- Auto-refresh ---
 
 chrome.runtime.onMessage.addListener((message) => {
   if (message.type === 'annotation-created' && message.data) {
-    if (!currentFilter || message.data.state === currentFilter) {
-      annotations.unshift(message.data);
-      renderList();
-    }
+    annotations.unshift(message.data);
+    renderList();
   }
   if (message.type === 'capture-ended') {
     resetCaptureState();
