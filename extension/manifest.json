@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "HAVI \u2013 Human-Agent Visual Interface",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Self-hosted visual annotations on any web page. Bridge human feedback to AI coding agents in real time.",
   "homepage_url": "https://github.com/handgemacht-ai/havi",
   "permissions": [
