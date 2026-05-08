@@ -86,3 +86,32 @@ release version:
     git push origin "$branch"
     git push origin "ext-v$version"
     echo "Released ext-v$version on $branch"
+
+release-server version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    version="{{version}}"
+    if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      echo "version must be MAJOR.MINOR.PATCH (got: $version)" >&2
+      exit 1
+    fi
+    if [ -n "$(git status --porcelain server/internal/version/version.go)" ]; then
+      echo "server/internal/version/version.go has uncommitted changes — refusing to release" >&2
+      exit 1
+    fi
+    python3 -c "
+    import pathlib, re
+    p = pathlib.Path('server/internal/version/version.go')
+    data = p.read_text()
+    new = re.sub(r'var Version = \".*\"', 'var Version = \"$version\"', data, count=1)
+    if new == data:
+        raise SystemExit('failed to bump version constant')
+    p.write_text(new)
+    "
+    git add server/internal/version/version.go
+    git commit -m "chore(server): bump to v$version"
+    git tag "server-v$version"
+    branch="$(git rev-parse --abbrev-ref HEAD)"
+    git push origin "$branch"
+    git push origin "server-v$version"
+    echo "Released server-v$version on $branch"
