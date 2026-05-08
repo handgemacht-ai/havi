@@ -27,9 +27,17 @@ import (
 const daemonChildEnv = "HAVI_DAEMON_CHILD"
 
 func main() {
-	daemon := flag.Bool("daemon", false, "run server in background, write PID to ~/.havi/havi.pid")
-	showVersion := flag.Bool("version", false, "print version and exit")
-	flag.Parse()
+	args := os.Args[1:]
+	if len(args) > 0 && args[0] == "serve" {
+		args = args[1:]
+	}
+
+	fs := flag.NewFlagSet("havi", flag.ExitOnError)
+	daemon := fs.Bool("daemon", false, "run server in background, write PID to ~/.havi/havi.pid")
+	showVersion := fs.Bool("version", false, "print version and exit")
+	if err := fs.Parse(args); err != nil {
+		log.Fatal(err)
+	}
 
 	if *showVersion {
 		fmt.Println(version.Version)

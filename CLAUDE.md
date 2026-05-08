@@ -2,6 +2,16 @@
 
 Self-hosted annotation platform where developers capture visual and technical observations from the browser during development. Annotations are stored as W3C Web Annotations (default: SQLite at `~/.havi/havi.db`; opt-in: Postgres), pushed in real-time into active Claude Code sessions via channels, and triaged by agents. See [ROADMAP.md](ROADMAP.md) for full scope.
 
+## Install
+
+The fastest path is via the Claude Code plugin: install the plugin (e.g. `/plugin install handgemacht-ai/havi`) and then run `/havi-setup` in any session. That command downloads the prebuilt server binary, starts it as a background daemon, and opens the Chrome Web Store listing for the extension. Subsequent sessions auto-revive the daemon via the plugin's SessionStart hook (`plugin/hooks/ensure-server.sh`).
+
+To install the binary manually:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/handgemacht-ai/havi/main/scripts/install.sh | sh
+```
+
 ## Running
 
 ```bash
