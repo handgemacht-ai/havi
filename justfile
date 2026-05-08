@@ -1,4 +1,7 @@
 # Annotation Platform — dev commands
+#
+# Default storage is SQLite at ~/.havi/havi.db; `just server` works with no infra.
+# Postgres is opt-in: run `just up` and set HAVI_DB_URL=postgres://... before `just server`.
 
 set dotenv-load
 

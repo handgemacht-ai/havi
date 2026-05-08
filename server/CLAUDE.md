@@ -10,15 +10,16 @@ HTTP server storing W3C Web Annotations in Postgres, serving them via REST API a
 
 ## Database
 
-- Postgres via `pgx/v5` — no ORM
-- Migrations: plain SQL files in `migrations/`, applied in order on server startup
-- Connection string from `SERVER_DB_URL` env var
+- Default: SQLite via `modernc.org/sqlite` (pure Go, no cgo) at `~/.havi/havi.db`
+- Opt-in: Postgres via `pgx/v5` (set `HAVI_DB_URL=postgres://...`)
+- Migrations: plain SQL files in `migrations/sqlite/` and `migrations/postgres/`, selected by URL scheme, applied in order on server startup
+- Connection string from `HAVI_DB_URL` env var (`SERVER_DB_URL` accepted for backward compat)
 
 ## W3C Web Annotation Storage
 
-The `annotation` JSONB column is the canonical W3C envelope. Indexed columns (`project`, `domain`, `worktree`, `branch`, `state`, `motivation`) are denormalized for query performance only.
+The `annotation` column (Postgres JSONB / SQLite TEXT with `json_valid` check) is the canonical W3C envelope. Indexed columns (`project`, `domain`, `worktree`, `branch`, `state`, `motivation`) are denormalized for query performance only.
 
-Never flatten W3C fields into top-level SQL columns. The JSONB column is the source of truth.
+Never flatten W3C fields into top-level SQL columns. The JSON column is the source of truth.
 
 ## MCP Endpoint
 
@@ -32,7 +33,7 @@ Claude Code discovers the server via `../.mcp.json`.
 
 ## Testing
 
-Use scenarigo for HTTP integration tests against real Postgres. Do not mock the database.
+Use scenarigo for HTTP integration tests against real storage. Tests default to a SQLite tempfile (no Docker required); set `HAVI_TEST_PG_URL=postgres://...` to also exercise the Postgres backend. Do not mock the database.
 
 ## Running
 

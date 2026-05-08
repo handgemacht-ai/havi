@@ -3,10 +3,17 @@
 package scenarios
 
 import (
+	"database/sql"
+
 	"github.com/handgemacht-ai/scenarigo"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func NewTestRegistry(pool *pgxpool.Pool, baseURL string) *scenarigo.Registry {
-	return scenarigo.NewRegistry(Fixtures(pool, baseURL)...)
+type Backend struct {
+	Postgres *pgxpool.Pool
+	SQLite   *sql.DB
+}
+
+func NewTestRegistry(b Backend, baseURL string) *scenarigo.Registry {
+	return scenarigo.NewRegistry(Fixtures(b, baseURL)...)
 }

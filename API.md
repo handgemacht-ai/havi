@@ -1,6 +1,6 @@
 # Annotation Platform — API Contract
 
-Single source of truth for the REST API, W3C Web Annotation envelope, Postgres schema, and error handling.
+Single source of truth for the REST API, W3C Web Annotation envelope, storage schema (SQLite default, Postgres opt-in), and error handling.
 
 ## Base URL
 
@@ -72,7 +72,7 @@ List annotations with optional filters.
 | `branch` | string | Filter by git branch |
 | `state` | string | Filter by state (`open`, `resolved`) |
 | `motivation` | string | Filter by motivation (`commenting`, `highlighting`, `describing`) |
-| `viewport` | string | Filter by viewport (extracted from annotation JSONB at query time) |
+| `viewport` | string | Filter by viewport (extracted from annotation JSON at query time) |
 | `creator` | string | Filter by creator name |
 | `limit` | integer | Max results (default 50, max 200) |
 | `offset` | integer | Pagination offset (default 0) |
@@ -703,9 +703,11 @@ All errors use a consistent envelope:
 
 ---
 
-## Postgres Schema
+## Storage Schema
 
-### annotations
+Two backends share the same logical schema. Postgres uses native types; SQLite uses TEXT with `json_valid` checks. The active backend is selected at startup by inspecting `HAVI_DB_URL` (default: SQLite at `~/.havi/havi.db`; `postgres://` prefix → Postgres).
+
+### Postgres (`server/migrations/postgres/001_create_annotations.sql`)
 
 ```sql
 CREATE TABLE IF NOT EXISTS annotations (
@@ -723,18 +725,6 @@ CREATE TABLE IF NOT EXISTS annotations (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_annotations_domain ON annotations (domain);
-CREATE INDEX IF NOT EXISTS idx_annotations_worktree ON annotations (worktree);
-CREATE INDEX IF NOT EXISTS idx_annotations_branch ON annotations (branch);
-CREATE INDEX IF NOT EXISTS idx_annotations_state ON annotations (state);
-CREATE INDEX IF NOT EXISTS idx_annotations_motivation ON annotations (motivation);
-CREATE INDEX IF NOT EXISTS idx_annotations_creator ON annotations (creator);
-CREATE INDEX IF NOT EXISTS idx_annotations_created_at ON annotations (created_at DESC);
-```
-
-### annotation_images
-
-```sql
 CREATE TABLE IF NOT EXISTS annotation_images (
     annotation_id UUID PRIMARY KEY REFERENCES annotations(id) ON DELETE CASCADE,
     image_data    BYTEA NOT NULL,
@@ -744,16 +734,45 @@ CREATE TABLE IF NOT EXISTS annotation_images (
 );
 ```
 
+### SQLite (`server/migrations/sqlite/001_create_annotations.sql`)
+
+```sql
+CREATE TABLE IF NOT EXISTS annotations (
+    id          TEXT PRIMARY KEY,             -- UUID generated in Go
+    project     TEXT NOT NULL DEFAULT '',
+    domain      TEXT NOT NULL DEFAULT '',
+    worktree    TEXT NOT NULL DEFAULT '',
+    branch      TEXT NOT NULL DEFAULT '',
+    state       TEXT NOT NULL DEFAULT 'open',
+    motivation  TEXT NOT NULL DEFAULT 'commenting',
+    creator     TEXT NOT NULL DEFAULT 'anonymous',
+    annotation  TEXT NOT NULL CHECK (json_valid(annotation)),
+    resolution  TEXT CHECK (resolution IS NULL OR json_valid(resolution)),
+    created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE TABLE IF NOT EXISTS annotation_images (
+    annotation_id TEXT PRIMARY KEY REFERENCES annotations(id) ON DELETE CASCADE,
+    image_data    BLOB NOT NULL,
+    content_type  TEXT NOT NULL DEFAULT 'image/png',
+    size_bytes    INTEGER NOT NULL,
+    created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+```
+
+Both backends create the same B-tree indexes on `domain`, `worktree`, `branch`, `state`, `motivation`, `creator`, and `created_at`.
+
 ### Schema Design Decisions
 
 - **`annotation_id` as PK** on images enforces 1:1 relationship without an extra UUID column
-- **`annotation` JSONB** is the canonical W3C envelope; SQL columns are denormalized for indexed queries
-- **No `viewport` SQL column** — extracted from annotation JSONB at query time (infrequent filter)
+- **`annotation` (JSONB / TEXT)** is the canonical W3C envelope; SQL columns are denormalized for indexed queries
+- **No `viewport` SQL column** — extracted from annotation JSON at query time (Postgres `->>`, SQLite `json_extract`)
 - **`project DEFAULT ''`** — populated by hook system which may not be configured
-- **`resolution` JSONB** — open-ended structure for resolve metadata (commit, PR, bead ID, etc.)
+- **`resolution` (JSONB / TEXT)** — open-ended structure for resolve metadata (commit, PR, bead ID, etc.)
 - **`creator` SQL column** — denormalized from `annotation.creator.name` for `?creator=` filter
 - **`updated_at`** — updated on every mutation (update, resolve)
-- **`image_data` BYTEA** — screenshots stored directly in Postgres (adequate for single-team scale)
+- **`image_data` (BYTEA / BLOB)** — screenshots stored directly in the database (adequate for single-team scale)
 
 ---
 
@@ -774,7 +793,7 @@ Preflight `OPTIONS` requests return `204 No Content` with the above headers.
 
 ## Conventions
 
-- **IDs**: UUID v4 (`gen_random_uuid()` in Postgres, `urn:uuid:` prefix in W3C envelope)
+- **IDs**: UUID v4 (generated in Go via `google/uuid`; Postgres also uses `gen_random_uuid()` defaults; `urn:uuid:` prefix in W3C envelope)
 - **Timestamps**: RFC 3339 (`2026-04-12T10:30:00Z`)
 - **Content-Type**: `application/json` for API requests/responses, `multipart/form-data` for create, `image/png` for image retrieval
 - **Envelope**: `{ "data": ... }` for single resource, `{ "data": [...], "meta": { "count": N } }` for collections

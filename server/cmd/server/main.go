@@ -2,10 +2,16 @@ package main
 
 import (
 	"context"
+	"errors"
+	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -17,15 +23,33 @@ import (
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/service"
 )
 
+const daemonChildEnv = "HAVI_DAEMON_CHILD"
+
 func main() {
+	daemon := flag.Bool("daemon", false, "run server in background, write PID to ~/.havi/havi.pid")
+	flag.Parse()
+
+	if *daemon && os.Getenv(daemonChildEnv) != "1" {
+		if err := spawnDaemon(); err != nil {
+			log.Fatalf("daemon spawn error=%v", err)
+		}
+		return
+	}
+
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
 	port := os.Getenv("SERVER_PORT")
 	if port == "" {
 		port = "8090"
 	}
 
-	dbURL := os.Getenv("SERVER_DB_URL")
+	dbURL := os.Getenv("HAVI_DB_URL")
 	if dbURL == "" {
-		log.Fatal("SERVER_DB_URL is required")
+		dbURL = os.Getenv("SERVER_DB_URL") // backward compat
 	}
 
 	corsOrigins := os.Getenv("CORS_ORIGINS")
@@ -33,17 +57,12 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	pool, err := db.Connect(ctx, dbURL)
+	annotationRepo, closer, err := openRepo(ctx, dbURL)
 	if err != nil {
-		log.Fatalf("db connect error=%v", err)
+		return fmt.Errorf("db connect error=%w", err)
 	}
-	defer pool.Close()
+	defer closer()
 
-	if err := db.Migrate(ctx, pool, "migrations"); err != nil {
-		log.Fatalf("migration error=%v", err)
-	}
-
-	annotationRepo := repo.NewPostgresRepo(pool)
 	baseURL := "http://localhost:" + port
 	annotationService := service.NewAnnotationService(annotationRepo, baseURL)
 
@@ -71,11 +90,16 @@ func main() {
 	defer sigCancel()
 
 	go func() {
-		log.Printf("server starting port=%s", port)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Printf("server starting port=%s db=%s", port, db.DetectBackend(resolveDBURL(dbURL)))
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("server error=%v", err)
 		}
 	}()
+
+	if pidPath := os.Getenv("HAVI_PID_FILE"); pidPath != "" {
+		_ = os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0o644)
+		defer os.Remove(pidPath)
+	}
 
 	<-sigCtx.Done()
 	log.Println("shutting down")
@@ -86,4 +110,123 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("shutdown error=%v", err)
 	}
+	return nil
+}
+
+func openRepo(ctx context.Context, dbURL string) (repo.AnnotationRepo, func(), error) {
+	resolved := resolveDBURL(dbURL)
+	switch db.DetectBackend(resolved) {
+	case db.BackendPostgres:
+		pool, err := db.ConnectPostgres(ctx, resolved)
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := db.MigratePostgres(ctx, pool, "migrations/postgres"); err != nil {
+			pool.Close()
+			return nil, nil, fmt.Errorf("migrate: %w", err)
+		}
+		return repo.NewPostgresRepo(pool), pool.Close, nil
+	default:
+		sqlDB, err := db.ConnectSQLite(resolved)
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := db.MigrateSQLite(ctx, sqlDB, "migrations/sqlite"); err != nil {
+			_ = sqlDB.Close()
+			return nil, nil, fmt.Errorf("migrate: %w", err)
+		}
+		return repo.NewSQLiteRepo(sqlDB), func() { _ = sqlDB.Close() }, nil
+	}
+}
+
+func resolveDBURL(dbURL string) string {
+	if dbURL != "" {
+		return dbURL
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "havi.db"
+	}
+	return filepath.Join(home, ".havi", "havi.db")
+}
+
+func spawnDaemon() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("home dir: %w", err)
+	}
+	dataDir := filepath.Join(home, ".havi")
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		return fmt.Errorf("mkdir %s: %w", dataDir, err)
+	}
+
+	pidFile := filepath.Join(dataDir, "havi.pid")
+	if running, pid := pidAlive(pidFile); running {
+		log.Printf("havi already running pid=%d", pid)
+		return nil
+	}
+
+	logPath := filepath.Join(dataDir, "server.log")
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return fmt.Errorf("open log %s: %w", logPath, err)
+	}
+	defer logFile.Close()
+
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("executable path: %w", err)
+	}
+
+	args := stripDaemonFlag(os.Args[1:])
+	cmd := exec.Command(exe, args...)
+	cmd.Env = append(os.Environ(),
+		daemonChildEnv+"=1",
+		"HAVI_PID_FILE="+pidFile,
+	)
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+	cmd.Stdin = nil
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start child: %w", err)
+	}
+
+	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(cmd.Process.Pid)), 0o644); err != nil {
+		return fmt.Errorf("write pid file: %w", err)
+	}
+
+	log.Printf("havi daemon started pid=%d log=%s", cmd.Process.Pid, logPath)
+	return nil
+}
+
+func stripDaemonFlag(args []string) []string {
+	out := make([]string, 0, len(args))
+	for _, a := range args {
+		if a == "--daemon" || a == "-daemon" {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
+func pidAlive(pidFile string) (bool, int) {
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		return false, 0
+	}
+	pid, err := strconv.Atoi(string(data))
+	if err != nil {
+		return false, 0
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return false, pid
+	}
+	if err := proc.Signal(syscall.Signal(0)); err != nil {
+		return false, pid
+	}
+	return true, pid
 }

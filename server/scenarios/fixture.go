@@ -4,6 +4,7 @@ package scenarios
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -49,39 +50,31 @@ var DefaultImage = ImageType.Define("default", scenarigo.Attrs{
 	"content_type":  "image/png",
 })
 
-func Fixtures(pool *pgxpool.Pool, baseURL string) []scenarigo.RegistryOption {
+func Fixtures(b Backend, baseURL string) []scenarigo.RegistryOption {
+	if b.Postgres != nil {
+		return []scenarigo.RegistryOption{
+			AnnotationType.WithCreate(annotationCreatePG(b.Postgres, baseURL)),
+			ImageType.WithCreate(imageCreatePG(b.Postgres)),
+		}
+	}
 	return []scenarigo.RegistryOption{
-		AnnotationType.WithCreate(annotationCreate(pool, baseURL)),
-		ImageType.WithCreate(imageCreate(pool)),
+		AnnotationType.WithCreate(annotationCreateSQLite(b.SQLite, baseURL)),
+		ImageType.WithCreate(imageCreateSQLite(b.SQLite)),
 	}
 }
 
-func annotationCreate(pool *pgxpool.Pool, baseURL string) scenarigo.CreateFunc {
+func annotationCreatePG(pool *pgxpool.Pool, baseURL string) scenarigo.CreateFunc {
 	return func(ctx context.Context, typeName string, attrs scenarigo.Attrs) (scenarigo.Record, error) {
-		id := uuid.New()
-		now := time.Now().UTC()
-
-		motivation := attrString(attrs, "motivation", "commenting")
-		creator := attrString(attrs, "creator", "anonymous")
-		state := attrString(attrs, "state", "open")
-		bodyText := attrString(attrs, "body_text", "")
-		targetSource := attrString(attrs, "target_source", "")
-		cssSelector := attrString(attrs, "css_selector", "")
-
-		w3c := buildW3CEnvelope(id, baseURL, motivation, creator, bodyText, targetSource, cssSelector, now)
-		w3cJSON, err := json.Marshal(w3c)
+		id, w3cJSON, domain, motivation, creator, state, now, err := buildAnnotationFromAttrs(attrs, baseURL)
 		if err != nil {
-			return nil, fmt.Errorf("annotation: marshal w3c: %w", err)
+			return nil, err
 		}
-
-		domain := extractDomain(targetSource)
 
 		query := `
 			INSERT INTO annotations (id, project, domain, worktree, branch, state, motivation, creator, annotation, resolution, created_at, updated_at)
 			VALUES ($1, '', $2, '', '', $3, $4, $5, $6, NULL, $7, $7)
 		`
-		_, err = pool.Exec(ctx, query, id, domain, state, motivation, creator, w3cJSON, now)
-		if err != nil {
+		if _, err := pool.Exec(ctx, query, id, domain, state, motivation, creator, w3cJSON, now); err != nil {
 			return nil, fmt.Errorf("annotation: insert failed: %w", err)
 		}
 
@@ -97,25 +90,46 @@ func annotationCreate(pool *pgxpool.Pool, baseURL string) scenarigo.CreateFunc {
 	}
 }
 
-func imageCreate(pool *pgxpool.Pool) scenarigo.CreateFunc {
+func annotationCreateSQLite(db *sql.DB, baseURL string) scenarigo.CreateFunc {
 	return func(ctx context.Context, typeName string, attrs scenarigo.Attrs) (scenarigo.Record, error) {
-		annotationID, err := attrUUID(attrs, "annotation_id")
+		id, w3cJSON, domain, motivation, creator, state, now, err := buildAnnotationFromAttrs(attrs, baseURL)
 		if err != nil {
-			return nil, fmt.Errorf("annotation_images: %w", err)
+			return nil, err
 		}
 
-		imageData, _ := attrs["image_data"].([]byte)
-		if imageData == nil {
-			imageData = []byte("test-image-data")
+		nowStr := now.UTC().Format("2006-01-02T15:04:05.000Z")
+		query := `
+			INSERT INTO annotations (id, project, domain, worktree, branch, state, motivation, creator, annotation, resolution, created_at, updated_at)
+			VALUES (?, '', ?, '', '', ?, ?, ?, ?, NULL, ?, ?)
+		`
+		if _, err := db.ExecContext(ctx, query, id.String(), domain, state, motivation, creator, string(w3cJSON), nowStr, nowStr); err != nil {
+			return nil, fmt.Errorf("annotation: insert failed: %w", err)
 		}
-		contentType := attrString(attrs, "content_type", "image/png")
+
+		return scenarigo.Attrs{
+			"id":         id.String(),
+			"domain":     domain,
+			"state":      state,
+			"motivation": motivation,
+			"creator":    creator,
+			"created_at": now,
+			"updated_at": now,
+		}, nil
+	}
+}
+
+func imageCreatePG(pool *pgxpool.Pool) scenarigo.CreateFunc {
+	return func(ctx context.Context, typeName string, attrs scenarigo.Attrs) (scenarigo.Record, error) {
+		annotationID, imageData, contentType, err := imageAttrs(attrs)
+		if err != nil {
+			return nil, err
+		}
 
 		query := `
 			INSERT INTO annotation_images (annotation_id, image_data, content_type, size_bytes, created_at)
 			VALUES ($1, $2, $3, $4, now())
 		`
-		_, err = pool.Exec(ctx, query, annotationID, imageData, contentType, len(imageData))
-		if err != nil {
+		if _, err := pool.Exec(ctx, query, annotationID, imageData, contentType, len(imageData)); err != nil {
 			return nil, fmt.Errorf("annotation_images: insert failed: %w", err)
 		}
 
@@ -125,6 +139,64 @@ func imageCreate(pool *pgxpool.Pool) scenarigo.CreateFunc {
 			"size_bytes":    len(imageData),
 		}, nil
 	}
+}
+
+func imageCreateSQLite(db *sql.DB) scenarigo.CreateFunc {
+	return func(ctx context.Context, typeName string, attrs scenarigo.Attrs) (scenarigo.Record, error) {
+		annotationID, imageData, contentType, err := imageAttrs(attrs)
+		if err != nil {
+			return nil, err
+		}
+
+		nowStr := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+		query := `
+			INSERT INTO annotation_images (annotation_id, image_data, content_type, size_bytes, created_at)
+			VALUES (?, ?, ?, ?, ?)
+		`
+		if _, err := db.ExecContext(ctx, query, annotationID.String(), imageData, contentType, len(imageData), nowStr); err != nil {
+			return nil, fmt.Errorf("annotation_images: insert failed: %w", err)
+		}
+
+		return scenarigo.Attrs{
+			"annotation_id": annotationID.String(),
+			"content_type":  contentType,
+			"size_bytes":    len(imageData),
+		}, nil
+	}
+}
+
+func imageAttrs(attrs scenarigo.Attrs) (uuid.UUID, []byte, string, error) {
+	annotationID, err := attrUUID(attrs, "annotation_id")
+	if err != nil {
+		return uuid.Nil, nil, "", fmt.Errorf("annotation_images: %w", err)
+	}
+	imageData, _ := attrs["image_data"].([]byte)
+	if imageData == nil {
+		imageData = []byte("test-image-data")
+	}
+	contentType := attrString(attrs, "content_type", "image/png")
+	return annotationID, imageData, contentType, nil
+}
+
+func buildAnnotationFromAttrs(attrs scenarigo.Attrs, baseURL string) (uuid.UUID, []byte, string, string, string, string, time.Time, error) {
+	id := uuid.New()
+	now := time.Now().UTC()
+
+	motivation := attrString(attrs, "motivation", "commenting")
+	creator := attrString(attrs, "creator", "anonymous")
+	state := attrString(attrs, "state", "open")
+	bodyText := attrString(attrs, "body_text", "")
+	targetSource := attrString(attrs, "target_source", "")
+	cssSelector := attrString(attrs, "css_selector", "")
+
+	w3c := buildW3CEnvelope(id, baseURL, motivation, creator, bodyText, targetSource, cssSelector, now)
+	w3cJSON, err := json.Marshal(w3c)
+	if err != nil {
+		return uuid.Nil, nil, "", "", "", "", time.Time{}, fmt.Errorf("annotation: marshal w3c: %w", err)
+	}
+
+	domain := extractDomain(targetSource)
+	return id, w3cJSON, domain, motivation, creator, state, now, nil
 }
 
 func buildW3CEnvelope(id uuid.UUID, baseURL, motivation, creator, bodyText, targetSource, cssSelector string, now time.Time) map[string]any {
@@ -172,7 +244,6 @@ func extractDomain(source string) string {
 	if source == "" {
 		return ""
 	}
-	// Simple extraction: strip scheme, take host
 	s := source
 	for _, prefix := range []string{"http://", "https://"} {
 		if len(s) > len(prefix) && s[:len(prefix)] == prefix {
