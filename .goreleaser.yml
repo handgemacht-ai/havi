@@ -1,0 +1,51 @@
+version: 2
+project_name: havi
+
+before:
+  hooks:
+    - sh -c "cd server && go mod tidy"
+
+builds:
+  - id: havi
+    main: ./cmd/server
+    binary: havi
+    dir: server
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/handgemacht-ai/annotation-plugin/server/internal/version.Version={{.Version}}
+
+archives:
+  - id: havi
+    name_template: "havi-{{ .Os }}-{{ .Arch }}"
+    formats: [tar.gz]
+    files:
+      - LICENSE*
+      - README*
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+release:
+  github:
+    owner: handgemacht-ai
+    name: havi
+  draft: false
+  prerelease: auto
+  name_template: "havi server {{ .Tag }}"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"

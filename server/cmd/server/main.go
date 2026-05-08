@@ -21,13 +21,20 @@ import (
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/middleware"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/repo"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/service"
+	"github.com/handgemacht-ai/annotation-plugin/server/internal/version"
 )
 
 const daemonChildEnv = "HAVI_DAEMON_CHILD"
 
 func main() {
 	daemon := flag.Bool("daemon", false, "run server in background, write PID to ~/.havi/havi.pid")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(version.Version)
+		return
+	}
 
 	if *daemon && os.Getenv(daemonChildEnv) != "1" {
 		if err := spawnDaemon(); err != nil {
