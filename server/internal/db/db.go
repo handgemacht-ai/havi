@@ -1,15 +1,17 @@
 package db
 
-import (
-	"context"
-	"fmt"
+import "strings"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+type Backend string
+
+const (
+	BackendSQLite   Backend = "sqlite"
+	BackendPostgres Backend = "postgres"
 )
 
-func Connect(ctx context.Context, dbURL string) (*pgxpool.Pool, error) {
-	if dbURL == "" {
-		return nil, fmt.Errorf("database URL must not be empty")
+func DetectBackend(url string) Backend {
+	if strings.HasPrefix(url, "postgres://") || strings.HasPrefix(url, "postgresql://") {
+		return BackendPostgres
 	}
-	return pgxpool.New(ctx, dbURL)
+	return BackendSQLite
 }

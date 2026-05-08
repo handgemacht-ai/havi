@@ -5,6 +5,7 @@ package main_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -33,35 +35,60 @@ import (
 )
 
 var (
-	testServer *httptest.Server
-	testPool   *pgxpool.Pool
-	testReg    *scenarigo.Registry
+	testServer  *httptest.Server
+	testPGPool  *pgxpool.Pool
+	testSQLite  *sql.DB
+	testReg     *scenarigo.Registry
+	testBackend scenarios.Backend
 )
+
+func newTestRepo() repo.AnnotationRepo {
+	if testPGPool != nil {
+		return repo.NewPostgresRepo(testPGPool)
+	}
+	return repo.NewSQLiteRepo(testSQLite)
+}
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 
-	dbURL := os.Getenv("SERVER_DB_URL")
-	if dbURL == "" {
-		dbURL = "postgres://annotations:dev@localhost:5432/annotations?sslmode=disable"
-	}
-
-	pool, err := db.Connect(ctx, dbURL)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "db connect: %v\n", err)
-		os.Exit(1)
-	}
-	testPool = pool
-
-	if err := db.Migrate(ctx, pool, "migrations"); err != nil {
-		fmt.Fprintf(os.Stderr, "migrate: %v\n", err)
-		os.Exit(1)
+	if pgURL := os.Getenv("HAVI_TEST_PG_URL"); pgURL != "" {
+		pool, err := db.ConnectPostgres(ctx, pgURL)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "db connect: %v\n", err)
+			os.Exit(1)
+		}
+		if err := db.MigratePostgres(ctx, pool, "migrations/postgres"); err != nil {
+			fmt.Fprintf(os.Stderr, "migrate: %v\n", err)
+			os.Exit(1)
+		}
+		testPGPool = pool
+		testBackend = scenarios.Backend{Postgres: pool}
+	} else {
+		tmpDir, err := os.MkdirTemp("", "havi-test-*")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "tempdir: %v\n", err)
+			os.Exit(1)
+		}
+		dbPath := filepath.Join(tmpDir, "havi-test.db")
+		sqlDB, err := db.ConnectSQLite(dbPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "sqlite connect: %v\n", err)
+			os.Exit(1)
+		}
+		if err := db.MigrateSQLite(ctx, sqlDB, "migrations/sqlite"); err != nil {
+			fmt.Fprintf(os.Stderr, "migrate: %v\n", err)
+			os.Exit(1)
+		}
+		testSQLite = sqlDB
+		testBackend = scenarios.Backend{SQLite: sqlDB}
+		defer os.RemoveAll(tmpDir)
 	}
 
 	testServer = httptest.NewUnstartedServer(nil)
 	baseURL := "http://" + testServer.Listener.Addr().String()
 
-	annotationRepo := repo.NewPostgresRepo(pool)
+	annotationRepo := newTestRepo()
 	svc := service.NewAnnotationService(annotationRepo, baseURL)
 	ctrl := controller.NewAnnotationController(svc, nil)
 	mcpModule := annotationmcp.New(svc)
@@ -77,20 +104,33 @@ func TestMain(m *testing.M) {
 	testServer.Config.Handler = middleware.CORS("", mux)
 	testServer.Start()
 
-	testReg = scenarios.NewTestRegistry(pool, testServer.URL)
+	testReg = scenarios.NewTestRegistry(testBackend, testServer.URL)
 
 	code := m.Run()
 
 	testServer.Close()
-	pool.Close()
+	if testPGPool != nil {
+		testPGPool.Close()
+	}
+	if testSQLite != nil {
+		_ = testSQLite.Close()
+	}
 	os.Exit(code)
 }
 
 func truncateTables(t *testing.T) {
 	t.Helper()
-	_, err := testPool.Exec(context.Background(), "TRUNCATE annotations CASCADE")
-	if err != nil {
-		t.Fatalf("truncate: %v", err)
+	if testPGPool != nil {
+		if _, err := testPGPool.Exec(context.Background(), "TRUNCATE annotations CASCADE"); err != nil {
+			t.Fatalf("truncate: %v", err)
+		}
+		return
+	}
+	if _, err := testSQLite.Exec("DELETE FROM annotation_images"); err != nil {
+		t.Fatalf("truncate annotation_images: %v", err)
+	}
+	if _, err := testSQLite.Exec("DELETE FROM annotations"); err != nil {
+		t.Fatalf("truncate annotations: %v", err)
 	}
 }
 
@@ -1299,7 +1339,7 @@ type capturedNotification struct {
 func withMCPSubscriber(t *testing.T, handler func(ts *httptest.Server, notifs *[]capturedNotification, mu *sync.Mutex)) {
 	t.Helper()
 
-	annotationRepo := repo.NewPostgresRepo(testPool)
+	annotationRepo := newTestRepo()
 	svc := service.NewAnnotationService(annotationRepo, "http://test")
 	mcpModule := annotationmcp.New(svc)
 	ctrl := controller.NewAnnotationController(svc, mcpModule)

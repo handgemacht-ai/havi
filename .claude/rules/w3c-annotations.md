@@ -4,7 +4,7 @@ All annotations use the W3C Web Annotation data model. This file is the vocabula
 
 ## Envelope Structure
 
-Every annotation stored in the `annotation` JSONB column must follow this structure:
+Every annotation stored in the `annotation` column (Postgres JSONB / SQLite TEXT with `json_valid` check) must follow this structure:
 
 ```json
 {
@@ -78,7 +78,7 @@ Every annotation stored in the `annotation` JSONB column must follow this struct
 
 ## Rules
 
-- Always store the full W3C envelope in the `annotation` JSONB column
+- Always store the full W3C envelope in the `annotation` column (Postgres JSONB / SQLite TEXT)
 - Never flatten W3C fields into top-level SQL columns
 - Use W3C field names in API responses — do not invent aliases
 - Indexed SQL columns (project, domain, worktree, branch, state, motivation) are denormalized copies for query performance only

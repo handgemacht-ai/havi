@@ -2,7 +2,7 @@
 
 ## Go Server
 
-Use scenarigo for HTTP integration tests against real Postgres. Do not mock the database.
+Use scenarigo for HTTP integration tests against a real database. Tests default to a SQLite tempfile (no Docker required); set `HAVI_TEST_PG_URL=postgres://...` to also exercise the Postgres backend. Do not mock the database.
 
 Tests run against a real server instance with a test database. Each test scenario is a YAML file describing HTTP requests and expected responses.
 
