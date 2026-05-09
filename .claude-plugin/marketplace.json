@@ -10,9 +10,9 @@
   },
   "plugins": [
     {
-      "name": "annotation",
+      "name": "havi",
       "source": "./plugin",
-      "description": "Annotation platform integration — review and resolve visual annotations captured from the browser. Includes /havi-setup for one-shot install and a SessionStart hook that auto-revives the local server.",
+      "description": "HAVI annotation platform — review and resolve visual annotations captured from the browser. Includes /havi-setup for one-shot install and a SessionStart hook that auto-revives the local server.",
       "keywords": ["annotation", "visual-qa", "w3c", "edtech"],
       "category": "developer-tools",
       "homepage": "https://github.com/handgemacht-ai/havi"
