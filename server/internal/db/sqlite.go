@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -49,21 +50,18 @@ func sqlitePath(dbURL string) string {
 	return dbURL
 }
 
-func MigrateSQLite(ctx context.Context, db *sql.DB, migrationsDir string) error {
-	files, err := readMigrationFiles(migrationsDir)
+func MigrateSQLite(ctx context.Context, db *sql.DB, fsys fs.FS) error {
+	files, err := readMigrationFiles(fsys)
 	if err != nil {
 		return err
 	}
-	if len(files) == 0 {
-		return nil
-	}
 	for _, name := range files {
-		data, err := os.ReadFile(filepath.Join(migrationsDir, name))
+		data, err := fs.ReadFile(fsys, name)
 		if err != nil {
-			return err
+			return fmt.Errorf("read migration %s: %w", name, err)
 		}
 		if _, err := db.ExecContext(ctx, string(data)); err != nil {
-			return fmt.Errorf("migration %s: %w", name, err)
+			return fmt.Errorf("apply migration %s: %w", name, err)
 		}
 	}
 	return nil

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -22,6 +23,7 @@ import (
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/repo"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/service"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/version"
+	"github.com/handgemacht-ai/annotation-plugin/server/migrations"
 )
 
 const daemonChildEnv = "HAVI_DAEMON_CHILD"
@@ -136,7 +138,12 @@ func openRepo(ctx context.Context, dbURL string) (repo.AnnotationRepo, func(), e
 		if err != nil {
 			return nil, nil, err
 		}
-		if err := db.MigratePostgres(ctx, pool, "migrations/postgres"); err != nil {
+		pgFS, err := fs.Sub(migrations.Postgres, "postgres")
+		if err != nil {
+			pool.Close()
+			return nil, nil, fmt.Errorf("locate postgres migrations: %w", err)
+		}
+		if err := db.MigratePostgres(ctx, pool, pgFS); err != nil {
 			pool.Close()
 			return nil, nil, fmt.Errorf("migrate: %w", err)
 		}
@@ -146,7 +153,12 @@ func openRepo(ctx context.Context, dbURL string) (repo.AnnotationRepo, func(), e
 		if err != nil {
 			return nil, nil, err
 		}
-		if err := db.MigrateSQLite(ctx, sqlDB, "migrations/sqlite"); err != nil {
+		sqliteFS, err := fs.Sub(migrations.SQLite, "sqlite")
+		if err != nil {
+			_ = sqlDB.Close()
+			return nil, nil, fmt.Errorf("locate sqlite migrations: %w", err)
+		}
+		if err := db.MigrateSQLite(ctx, sqlDB, sqliteFS); err != nil {
 			_ = sqlDB.Close()
 			return nil, nil, fmt.Errorf("migrate: %w", err)
 		}
@@ -154,34 +166,40 @@ func openRepo(ctx context.Context, dbURL string) (repo.AnnotationRepo, func(), e
 	}
 }
 
+// dataDir resolves the data directory for the SQLite DB, PID file, and log.
+// Honours $HAVI_DATA_DIR (used by the Claude plugin to point at $CLAUDE_PLUGIN_DATA);
+// falls back to ~/.havi for standalone CLI use.
+func dataDir() string {
+	if d := os.Getenv("HAVI_DATA_DIR"); d != "" {
+		return d
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "."
+	}
+	return filepath.Join(home, ".havi")
+}
+
 func resolveDBURL(dbURL string) string {
 	if dbURL != "" {
 		return dbURL
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "havi.db"
-	}
-	return filepath.Join(home, ".havi", "havi.db")
+	return filepath.Join(dataDir(), "havi.db")
 }
 
 func spawnDaemon() error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("home dir: %w", err)
-	}
-	dataDir := filepath.Join(home, ".havi")
-	if err := os.MkdirAll(dataDir, 0o700); err != nil {
-		return fmt.Errorf("mkdir %s: %w", dataDir, err)
+	dir := dataDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 
-	pidFile := filepath.Join(dataDir, "havi.pid")
+	pidFile := filepath.Join(dir, "havi.pid")
 	if running, pid := pidAlive(pidFile); running {
 		log.Printf("havi already running pid=%d", pid)
 		return nil
 	}
 
-	logPath := filepath.Join(dataDir, "server.log")
+	logPath := filepath.Join(dir, "server.log")
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("open log %s: %w", logPath, err)

@@ -6,7 +6,7 @@ set -eu
 
 MANAGED_BLOCK_START="# >>> havi-server >>>"
 MANAGED_BLOCK_END="# <<< havi-server <<<"
-DATA_DIR="${HOME}/.havi"
+DATA_DIR="${CLAUDE_PLUGIN_DATA:-$HOME/.havi}"
 PID_FILE="${DATA_DIR}/havi.pid"
 DEFAULT_URL="http://localhost:8090"
 
@@ -23,7 +23,7 @@ if command -v havi >/dev/null 2>&1; then
     fi
   fi
   if [ "$needs_start" = "1" ]; then
-    havi serve --daemon >/dev/null 2>&1 || true
+    HAVI_DATA_DIR="$DATA_DIR" havi serve --daemon >/dev/null 2>&1 || true
   fi
 fi
 
