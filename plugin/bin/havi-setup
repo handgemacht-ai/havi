@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# One-shot installer for HAVI. Idempotent: re-running confirms each step
+# instead of redoing the work. Designed to be invoked from the /havi:havi-setup
+# skill or directly from a terminal.
+set -eu
+
+DATA_DIR="${CLAUDE_PLUGIN_DATA:-$HOME/.havi}"
+SERVER_URL="${HAVI_SERVER_URL:-http://localhost:8090}"
+STORE_URL="https://chrome.google.com/webstore/detail/deedaihcndphkolmnfegjfjilcadncil"
+INSTALL_URL="https://raw.githubusercontent.com/handgemacht-ai/havi/main/scripts/install.sh"
+
+step() { printf '\n\033[1;34m▶ %s\033[0m\n' "$*"; }
+ok()   { printf '  \033[1;32m✓\033[0m %s\n' "$*"; }
+warn() { printf '  \033[1;33m!\033[0m %s\n' "$*"; }
+err()  { printf '  \033[1;31m✗\033[0m %s\n' "$*" >&2; }
+
+mkdir -p "$DATA_DIR"
+
+step "1/5  havi binary"
+if command -v havi >/dev/null 2>&1; then
+  ok "already installed: $(havi --version 2>/dev/null || echo unknown) at $(command -v havi)"
+else
+  warn "not installed — fetching install.sh"
+  if ! curl -fsSL "$INSTALL_URL" | sh; then
+    err "install.sh failed. Run manually: curl -fsSL $INSTALL_URL | sh"
+    exit 1
+  fi
+  if ! command -v havi >/dev/null 2>&1; then
+    err "havi still not on PATH after install. Add ~/.local/bin to your shell rc and re-run."
+    exit 1
+  fi
+  ok "installed: $(havi --version)"
+fi
+
+step "2/5  daemon"
+PID_FILE="$DATA_DIR/havi.pid"
+LOG_FILE="$DATA_DIR/server.log"
+if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null; then
+  ok "already running pid=$(cat "$PID_FILE")"
+else
+  HAVI_DATA_DIR="$DATA_DIR" havi serve --daemon >/dev/null 2>&1 || true
+  sleep 0.3
+  if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null; then
+    ok "started pid=$(cat "$PID_FILE")"
+  else
+    err "daemon failed to start. Last 20 lines of $LOG_FILE:"
+    tail -n 20 "$LOG_FILE" 2>/dev/null | sed 's/^/    /' >&2 || true
+    if grep -q "operation not permitted" "$LOG_FILE" 2>/dev/null; then
+      cat >&2 <<'EOF'
+
+  This is the Claude Code sandbox blocking bind() on port 8090.
+  Two ways to unblock it:
+
+    A. Run "havi serve --daemon" once from your terminal (outside Claude),
+       then come back. The SessionStart hook will keep it alive.
+
+    B. Allow localhost binding in Claude. Run /sandbox and pick a config
+       with allowLocalBinding, or add to .claude/settings.json:
+         { "sandbox": { "network": { "allowLocalBinding": true },
+                        "excludedCommands": ["havi *"] } }
+EOF
+    fi
+    exit 1
+  fi
+fi
+
+step "3/5  health probe"
+healthy=0
+for i in 1 2 3 4 5 6 7 8; do
+  if curl -fsS "$SERVER_URL/health" >/dev/null 2>&1; then
+    healthy=1
+    break
+  fi
+  sleep 0.25
+done
+if [ "$healthy" = "1" ]; then
+  ok "$SERVER_URL/health returned 200"
+else
+  err "/health unreachable from this shell."
+  if grep -q "operation not permitted" "$LOG_FILE" 2>/dev/null; then
+    warn "(Sandbox is also blocking outbound localhost. The daemon may be running fine — verify with: curl $SERVER_URL/health from a regular terminal.)"
+  fi
+fi
+
+step "4/5  MCP transport"
+if curl -fsS -X POST "$SERVER_URL/mcp" \
+    -H "Content-Type: application/json" \
+    -H "Accept: application/json, text/event-stream" \
+    -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"havi-setup","version":"0.1"}}}' \
+    >/dev/null 2>&1; then
+  ok "$SERVER_URL/mcp reachable"
+else
+  warn "/mcp probe failed — may also be sandboxed. Plugin's MCP client connects from outside the sandbox, so this is informational only."
+fi
+
+step "5/5  Chrome extension"
+if command -v open >/dev/null 2>&1; then
+  open "$STORE_URL" 2>/dev/null && ok "opened Chrome Web Store" || warn "open failed; visit: $STORE_URL"
+elif command -v xdg-open >/dev/null 2>&1; then
+  xdg-open "$STORE_URL" 2>/dev/null && ok "opened browser" || warn "xdg-open failed; visit: $STORE_URL"
+else
+  ok "install the extension here: $STORE_URL"
+fi
+
+cat <<EOF
+
+────────────────────────────────────────────────────────────
+  HAVI ready
+    binary:   $(command -v havi)
+    data:     $DATA_DIR
+    daemon:   $(cat "$PID_FILE" 2>/dev/null || echo ?) on $SERVER_URL
+    log:      $LOG_FILE
+
+  Next: run /reload-plugins so the MCP client picks up the daemon,
+  then click "Add to Chrome" on the page that just opened.
+────────────────────────────────────────────────────────────
+EOF
