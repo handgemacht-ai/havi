@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -31,6 +32,7 @@ import (
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/middleware"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/repo"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/service"
+	"github.com/handgemacht-ai/annotation-plugin/server/migrations"
 	"github.com/handgemacht-ai/annotation-plugin/server/scenarios"
 )
 
@@ -58,7 +60,12 @@ func TestMain(m *testing.M) {
 			fmt.Fprintf(os.Stderr, "db connect: %v\n", err)
 			os.Exit(1)
 		}
-		if err := db.MigratePostgres(ctx, pool, "migrations/postgres"); err != nil {
+		pgFS, err := fs.Sub(migrations.Postgres, "postgres")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "locate pg migrations: %v\n", err)
+			os.Exit(1)
+		}
+		if err := db.MigratePostgres(ctx, pool, pgFS); err != nil {
 			fmt.Fprintf(os.Stderr, "migrate: %v\n", err)
 			os.Exit(1)
 		}
@@ -76,7 +83,12 @@ func TestMain(m *testing.M) {
 			fmt.Fprintf(os.Stderr, "sqlite connect: %v\n", err)
 			os.Exit(1)
 		}
-		if err := db.MigrateSQLite(ctx, sqlDB, "migrations/sqlite"); err != nil {
+		sqliteFS, subErr := fs.Sub(migrations.SQLite, "sqlite")
+		if subErr != nil {
+			fmt.Fprintf(os.Stderr, "locate sqlite migrations: %v\n", subErr)
+			os.Exit(1)
+		}
+		if err := db.MigrateSQLite(ctx, sqlDB, sqliteFS); err != nil {
 			fmt.Fprintf(os.Stderr, "migrate: %v\n", err)
 			os.Exit(1)
 		}

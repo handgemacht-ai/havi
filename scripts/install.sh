@@ -102,5 +102,5 @@ case ":${PATH}:" in
 esac
 
 info "next steps:"
-info "  havi serve --daemon            # start in background (SQLite at ~/.havi/havi.db)"
+info "  havi serve --daemon            # start in background (data dir: \${HAVI_DATA_DIR:-~/.havi})"
 info "  curl http://localhost:8090/health"

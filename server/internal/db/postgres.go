@@ -3,8 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
-	"log"
-	"os"
+	"io/fs"
 	"path/filepath"
 	"sort"
 
@@ -18,31 +17,27 @@ func ConnectPostgres(ctx context.Context, dbURL string) (*pgxpool.Pool, error) {
 	return pgxpool.New(ctx, dbURL)
 }
 
-func MigratePostgres(ctx context.Context, pool *pgxpool.Pool, migrationsDir string) error {
-	files, err := readMigrationFiles(migrationsDir)
+func MigratePostgres(ctx context.Context, pool *pgxpool.Pool, fsys fs.FS) error {
+	files, err := readMigrationFiles(fsys)
 	if err != nil {
 		return err
 	}
-	if len(files) == 0 {
-		return nil
-	}
 	for _, name := range files {
-		data, err := os.ReadFile(filepath.Join(migrationsDir, name))
+		data, err := fs.ReadFile(fsys, name)
 		if err != nil {
-			return err
+			return fmt.Errorf("read migration %s: %w", name, err)
 		}
 		if _, err := pool.Exec(ctx, string(data)); err != nil {
-			return fmt.Errorf("migration %s: %w", name, err)
+			return fmt.Errorf("apply migration %s: %w", name, err)
 		}
 	}
 	return nil
 }
 
-func readMigrationFiles(migrationsDir string) ([]string, error) {
-	entries, err := os.ReadDir(migrationsDir)
+func readMigrationFiles(fsys fs.FS) ([]string, error) {
+	entries, err := fs.ReadDir(fsys, ".")
 	if err != nil {
-		log.Printf("WARN: migrations directory %q not readable: %v — skipping migrations", migrationsDir, err)
-		return nil, nil
+		return nil, fmt.Errorf("read migrations: %w", err)
 	}
 	var sqlFiles []string
 	for _, e := range entries {
@@ -51,7 +46,7 @@ func readMigrationFiles(migrationsDir string) ([]string, error) {
 		}
 	}
 	if len(sqlFiles) == 0 {
-		log.Printf("WARN: no SQL files found in %q — skipping migrations", migrationsDir)
+		return nil, fmt.Errorf("no .sql files found in migrations")
 	}
 	sort.Strings(sqlFiles)
 	return sqlFiles, nil

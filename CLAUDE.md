@@ -16,7 +16,7 @@ curl -fsSL https://raw.githubusercontent.com/handgemacht-ai/havi/main/scripts/in
 
 ```bash
 just server               # Run Go server with SQLite at ~/.havi/havi.db (default)
-havi serve --daemon       # Run in background, PID at ~/.havi/havi.pid, log at ~/.havi/server.log
+havi serve --daemon       # Run in background; data dir is $HAVI_DATA_DIR (default ~/.havi)
 ```
 
 Postgres is opt-in:
@@ -29,9 +29,11 @@ just down / just reset / just logs / just status         # Postgres lifecycle
 
 ## Storage
 
-- Default: SQLite at `~/.havi/havi.db` (configurable via `HAVI_DB_URL=/path/to/file.db` or `sqlite:///path/to/file.db`)
+- Default data dir: `${HAVI_DATA_DIR:-$HOME/.havi}` (holds `havi.db`, `havi.pid`, `server.log`)
+- Default DB: `${HAVI_DATA_DIR:-$HOME/.havi}/havi.db` (override the file directly with `HAVI_DB_URL=/path/to/file.db` or `sqlite:///path/to/file.db`)
 - Opt-in: Postgres via `HAVI_DB_URL=postgres://...`
-- Migrations live in `server/migrations/sqlite/` and `server/migrations/postgres/`; the active backend is selected by URL scheme.
+- Migrations live in `server/migrations/sqlite/` and `server/migrations/postgres/` and are embedded in the binary via `go:embed`; the active backend is selected by URL scheme.
+- The Claude plugin sets `HAVI_DATA_DIR=${CLAUDE_PLUGIN_DATA}` so plugin-managed data stays inside the plugin's writable area.
 
 ## Ports
 

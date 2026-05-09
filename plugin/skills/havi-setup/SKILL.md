@@ -11,11 +11,13 @@ This skill brings a fresh machine to a working HAVI install in one step. After i
 
 - `havi` is installed at `~/.local/bin/havi` (or `/usr/local/bin/havi` if writable).
 - The server is running in the background, listening on `localhost:8090`.
-- The SQLite database lives at `~/.havi/havi.db`.
+- The SQLite database, PID file, and log live under `${CLAUDE_PLUGIN_DATA}` (the per-plugin writable data dir Claude Code provides).
 - The Chrome Web Store listing is open in the user's browser, ready to install the extension.
 - `ANNOTATION_SERVER_URL=http://localhost:8090` is exported into the Claude session env.
 
 The setup is idempotent — re-running it on an already-set-up machine confirms each step instead of redoing the work.
+
+The daemon honours `HAVI_DATA_DIR`. The skill and the SessionStart hook both export `HAVI_DATA_DIR=${CLAUDE_PLUGIN_DATA}` so plugin-managed runs stay isolated; standalone `havi` invocations from a terminal still default to `~/.havi`.
 
 ### Step 1: Check if `havi` is installed
 
@@ -33,10 +35,10 @@ If the install script reports that `~/.local/bin` is not on PATH, surface its me
 ### Step 2: Start the daemon
 
 ```bash
-havi serve --daemon
+HAVI_DATA_DIR="${CLAUDE_PLUGIN_DATA:-$HOME/.havi}" havi serve --daemon
 ```
 
-The first run creates `~/.havi/havi.db` and applies the SQLite migrations automatically; the existing `db.Migrate` call inside `havi serve` is idempotent. Subsequent runs detect the live PID at `~/.havi/havi.pid` and exit cleanly.
+The first run creates `${HAVI_DATA_DIR}/havi.db` and applies the embedded SQLite migrations on startup. Subsequent runs detect the live PID at `${HAVI_DATA_DIR}/havi.pid` and exit cleanly.
 
 ### Step 3: Probe the health endpoint
 
@@ -52,7 +54,7 @@ for i in 1 2 3 4 5; do
 done
 ```
 
-If `/health` never responds, read the last 50 lines of `~/.havi/server.log` and surface the error to the user so they can diagnose port conflicts or permission issues. Do not retry indefinitely.
+If `/health` never responds, read the last 50 lines of `${HAVI_DATA_DIR:-$HOME/.havi}/server.log` and surface the error to the user so they can diagnose port conflicts or permission issues. Do not retry indefinitely.
 
 ### Step 4: Probe the MCP transport
 
@@ -94,9 +96,9 @@ Print a short banner summarizing the result:
 ```
 HAVI ready
   binary:   ~/.local/bin/havi
-  database: ~/.havi/havi.db
+  database: ${HAVI_DATA_DIR}/havi.db
   daemon:   pid <PID> on http://localhost:8090
-  log:      ~/.havi/server.log
+  log:      ${HAVI_DATA_DIR}/server.log
   next:     install the Chrome extension from the page that just opened
 ```
 

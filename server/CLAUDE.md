@@ -10,10 +10,11 @@ HTTP server storing W3C Web Annotations in Postgres, serving them via REST API a
 
 ## Database
 
-- Default: SQLite via `modernc.org/sqlite` (pure Go, no cgo) at `~/.havi/havi.db`
+- Default: SQLite via `modernc.org/sqlite` (pure Go, no cgo) at `${HAVI_DATA_DIR:-$HOME/.havi}/havi.db`
 - Opt-in: Postgres via `pgx/v5` (set `HAVI_DB_URL=postgres://...`)
-- Migrations: plain SQL files in `migrations/sqlite/` and `migrations/postgres/`, selected by URL scheme, applied in order on server startup
+- Migrations: plain SQL files in `migrations/sqlite/` and `migrations/postgres/`, embedded in the binary via `go:embed`, selected by URL scheme, applied in order on server startup. Migration failures are fatal — the server will not start with an empty schema.
 - Connection string from `HAVI_DB_URL` env var (`SERVER_DB_URL` accepted for backward compat)
+- Data dir for SQLite/PID/log is `$HAVI_DATA_DIR` if set, otherwise `~/.havi`. The Claude plugin sets it to `${CLAUDE_PLUGIN_DATA}`.
 
 ## W3C Web Annotation Storage
 
