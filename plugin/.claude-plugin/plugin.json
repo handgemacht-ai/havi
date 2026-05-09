@@ -1,7 +1,7 @@
 {
-  "name": "annotation",
+  "name": "havi",
   "version": "0.2.0",
-  "description": "Annotation platform integration — review and resolve visual annotations captured from the browser",
+  "description": "HAVI annotation platform — review and resolve visual annotations captured from the browser",
   "keywords": ["annotation", "visual-qa", "w3c"],
   "mcpServers": "./.mcp.json",
   "hooks": "./hooks/hooks.json"
