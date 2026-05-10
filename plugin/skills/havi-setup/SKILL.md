@@ -36,4 +36,8 @@ If the script reports "operation not permitted" on bind, the Claude Code sandbox
 
 Tell the user:
 
-> Run `/reload-plugins` to reconnect the MCP client to the running daemon, then click **Add to Chrome** on the page that just opened.
+> Restart Claude so the MCP client picks up the daemon:
+> ```
+> claude --dangerously-load-development-channels plugin:havi@havi
+> ```
+> Then click **Add to Chrome** on the page that just opened.
