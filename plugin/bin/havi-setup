@@ -111,7 +111,8 @@ cat <<EOF
     daemon:   $(cat "$PID_FILE" 2>/dev/null || echo ?) on $SERVER_URL
     log:      $LOG_FILE
 
-  Next: run /reload-plugins so the MCP client picks up the daemon,
-  then click "Add to Chrome" on the page that just opened.
+  Next: restart Claude so the MCP client picks up the daemon —
+    claude --dangerously-load-development-channels plugin:havi@havi
+  Then click "Add to Chrome" on the page that just opened.
 ────────────────────────────────────────────────────────────
 EOF
