@@ -3,7 +3,7 @@ name: Release server binary
 on:
   push:
     tags:
-      - "server-v*"
+      - "v*"
   workflow_dispatch:
     inputs:
       version:
@@ -35,7 +35,7 @@ jobs:
           set -euo pipefail
           if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
             tag="${GITHUB_REF#refs/tags/}"
-            version="${tag#server-v}"
+            version="${tag#v}"
             echo "version=$version" >> "$GITHUB_OUTPUT"
             echo "tag=$tag" >> "$GITHUB_OUTPUT"
           else
@@ -45,7 +45,7 @@ jobs:
               exit 1
             fi
             echo "version=$version" >> "$GITHUB_OUTPUT"
-            echo "tag=server-v$version" >> "$GITHUB_OUTPUT"
+            echo "tag=v$version" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Run goreleaser
