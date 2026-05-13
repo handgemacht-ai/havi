@@ -1,0 +1,99 @@
+{
+  "manifest_version": 3,
+  "name": "HAVI – Human-Agent Visual Interface",
+  "version": "0.2.0",
+  "description": "Self-hosted visual annotations on any web page. Bridge human feedback to AI coding agents in real time.",
+  "homepage_url": "https://github.com/handgemacht-ai/havi",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "havi@handgemacht.ai",
+      "strict_min_version": "128.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  },
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "optional_host_permissions": [
+    "<all_urls>"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "assets/fabric.min.js",
+        "assets/cropper.min.js",
+        "assets/css-selector-generator.min.js",
+        "src/content/content.js"
+      ],
+      "css": [
+        "assets/cropper.min.css",
+        "src/content/content.css"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "src/content/context-collector.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ],
+  "background": {
+    "scripts": [
+      "src/background/background.js"
+    ]
+  },
+  "sidebar_action": {
+    "default_panel": "src/sidepanel/sidepanel.html",
+    "default_title": "HAVI",
+    "default_icon": {
+      "16": "assets/icon-16.png",
+      "48": "assets/icon-48.png",
+      "128": "assets/icon-128.png"
+    }
+  },
+  "commands": {
+    "toggle-capture": {
+      "suggested_key": {
+        "default": "Alt+Shift+A",
+        "mac": "Alt+Shift+A"
+      },
+      "description": "Start annotation capture"
+    },
+    "_execute_sidebar_action": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
+      },
+      "description": "Toggle HAVI sidebar"
+    }
+  },
+  "action": {
+    "default_icon": {
+      "16": "assets/icon-16.png",
+      "48": "assets/icon-48.png",
+      "128": "assets/icon-128.png"
+    },
+    "default_title": "HAVI"
+  },
+  "icons": {
+    "16": "assets/icon-16.png",
+    "48": "assets/icon-48.png",
+    "128": "assets/icon-128.png"
+  }
+}

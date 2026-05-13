@@ -15,6 +15,9 @@ extension/web-ext-artifacts/
 extension.crx
 extension.pem
 extension.zip
+firefox-build/
+havi.xpi
+*.xpi
 
 # Environment
 .env

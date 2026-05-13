@@ -1,6 +1,16 @@
 const DEFAULT_SERVER_URL = 'http://localhost:8090';
 
-chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+// firefox-build:strip-start
+if (chrome.sidePanel?.setPanelBehavior) {
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+}
+// firefox-build:strip-end
+
+chrome.action.onClicked.addListener(() => {
+  if (typeof browser !== 'undefined' && browser.sidebarAction) {
+    browser.sidebarAction.toggle();
+  }
+});
 
 async function ensureContentScript(tabId) {
   try {

@@ -55,6 +55,9 @@ test: test-server
 test-server:
     cd server && go test -tags scenario -count=1 ./...
 
+build-firefox:
+    bash scripts/build-firefox.sh
+
 pack:
     google-chrome-stable --pack-extension=extension {{ if path_exists("extension.pem") == "true" { "--pack-extension-key=extension.pem" } else { "" } }} --no-sandbox
     cd extension && python3 -c "import zipfile, pathlib; z=zipfile.ZipFile('../extension.zip','w',zipfile.ZIP_DEFLATED); [z.write(f,f.relative_to('.')) for f in pathlib.Path('.').rglob('*') if f.is_file() and not any(p.startswith('.') for p in f.parts)]; z.close()"

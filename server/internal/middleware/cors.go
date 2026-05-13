@@ -33,7 +33,7 @@ func CORS(allowedOrigins string, next http.Handler) http.Handler {
 
 func parsePatterns(origins string) []string {
 	if origins == "" {
-		origins = "chrome-extension://*,http://localhost:*"
+		origins = "chrome-extension://*,moz-extension://*,http://localhost:*"
 	}
 	parts := strings.Split(origins, ",")
 	patterns := make([]string, 0, len(parts))
