@@ -18,6 +18,7 @@ import (
 
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/controller"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/db"
+	"github.com/handgemacht-ai/annotation-plugin/server/internal/installer/codex"
 	annotationmcp "github.com/handgemacht-ai/annotation-plugin/server/internal/mcp"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/middleware"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/repo"
@@ -35,6 +36,9 @@ func main() {
 			log.Fatal(err)
 		}
 		return
+	}
+	if len(args) > 0 && (args[0] == "install" || args[0] == "uninstall") {
+		os.Exit(runInstaller(args[0], args[1:]))
 	}
 	if len(args) > 0 && args[0] == "serve" {
 		args = args[1:]
@@ -175,6 +179,58 @@ func openRepo(ctx context.Context, dbURL string) (repo.AnnotationRepo, func(), e
 // dataDir resolves the data directory for the SQLite DB, PID file, and log.
 // Honours $HAVI_DATA_DIR (used by the Claude plugin to point at $CLAUDE_PLUGIN_DATA);
 // falls back to ~/.havi for standalone CLI use.
+// codexInstallHint is shown when `codex --version` does not exit zero.
+const codexInstallHint = "install Codex CLI: npm install -g @openai/codex (or see https://github.com/openai/codex)"
+
+// runInstaller dispatches `havi install <ide>` / `havi uninstall <ide>` and
+// returns the process exit code.
+func runInstaller(action string, args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintf(os.Stderr, "usage: havi %s <ide>\n  supported IDEs: codex\n", action)
+		return 2
+	}
+	ide := args[0]
+	switch ide {
+	case "codex":
+		return runCodexInstaller(action)
+	default:
+		fmt.Fprintf(os.Stderr, "havi %s: unsupported IDE %q (supported: codex)\n", action, ide)
+		return 2
+	}
+}
+
+func runCodexInstaller(action string) int {
+	if action == "install" && !codex.DetectCLI() {
+		fmt.Fprintf(os.Stderr, "codex: failed (Codex CLI not on PATH; %s)\n", codexInstallHint)
+		return 1
+	}
+
+	path, err := codex.ConfigPath()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "codex: failed (%v)\n", err)
+		return 1
+	}
+
+	var status codex.Status
+	switch action {
+	case "install":
+		status, err = codex.Install(path)
+	case "uninstall":
+		status, err = codex.Uninstall(path)
+	default:
+		fmt.Fprintf(os.Stderr, "havi: unknown action %q\n", action)
+		return 2
+	}
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "codex: failed (%v)\n", err)
+		return 1
+	}
+
+	fmt.Printf("codex: %s (%s)\n", status, path)
+	return 0
+}
+
 func dataDir() string {
 	if d := os.Getenv("HAVI_DATA_DIR"); d != "" {
 		return d
