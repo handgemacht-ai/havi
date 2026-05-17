@@ -66,6 +66,30 @@ Re-running `install` is a no-op when the entry already matches. Uninstall delete
 }
 ```
 
+## GitHub Copilot (VS Code)
+
+[GitHub Copilot in VS Code](https://code.visualstudio.com/docs/copilot/customization/mcp-servers) reads MCP server definitions from `.vscode/mcp.json` (workspace-local) or your VS Code user-profile `mcp.json` (`~/.config/Code/User/mcp.json` on Linux, `~/Library/Application Support/Code/User/mcp.json` on macOS). `havi install copilot` writes the workspace file by default; pass `--global` for the user-profile fallback.
+
+```bash
+havi install copilot              # writes ./.vscode/mcp.json
+havi install copilot --global     # writes the VS Code user-profile mcp.json
+havi uninstall copilot            # remove servers.havi from the workspace file
+havi uninstall copilot --global   # same, against the user-profile file
+```
+
+The writer owns one named key — `servers.havi` — and leaves every other key in the file byte-stable, so unrelated MCP servers (e.g. `github`, `playwright`) and unrelated top-level keys (e.g. `inputs`) survive both install and uninstall untouched. Uninstall deletes the file entirely when havi was the only content; otherwise the rest of the file is preserved byte-for-byte. The equivalent manual stanza is:
+
+```json
+{
+  "servers": {
+    "havi": {
+      "command": "havi",
+      "args": ["mcp-bridge"]
+    }
+  }
+}
+```
+
 ## MCP bridge (Codex / stdio-only clients)
 
 Some MCP clients (such as OpenAI Codex CLI) communicate over stdio rather than HTTP. `havi mcp-bridge` is a thin subprocess that reads newline-delimited JSON-RPC frames from stdin, forwards them to the local havi server's `/mcp` endpoint using the Streamable HTTP MCP protocol, and writes each JSON-RPC response back to stdout. On the first request it automatically starts the havi daemon if it is not already running (opt out by setting `HAVI_NO_AUTO_REVIVE=1`).

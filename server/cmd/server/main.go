@@ -20,6 +20,7 @@ import (
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/db"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/installer/agentsmd"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/installer/codex"
+	"github.com/handgemacht-ai/annotation-plugin/server/internal/installer/copilot"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/installer/cursor"
 	annotationmcp "github.com/handgemacht-ai/annotation-plugin/server/internal/mcp"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/middleware"
@@ -188,7 +189,7 @@ const codexInstallHint = "install Codex CLI: npm install -g @openai/codex (or se
 // and returns the process exit code.
 func runInstaller(action string, args []string) int {
 	if len(args) < 1 {
-		fmt.Fprintf(os.Stderr, "usage: havi %s <target>\n  supported targets: codex, cursor, agents-md\n", action)
+		fmt.Fprintf(os.Stderr, "usage: havi %s <target>\n  supported targets: codex, cursor, copilot, agents-md\n", action)
 		return 2
 	}
 	target := args[0]
@@ -198,12 +199,55 @@ func runInstaller(action string, args []string) int {
 		return runCodexInstaller(action)
 	case "cursor":
 		return runCursorInstaller(action)
+	case "copilot":
+		return runCopilotInstaller(action, rest)
 	case "agents-md":
 		return runAgentsMDInstaller(action, rest)
 	default:
-		fmt.Fprintf(os.Stderr, "havi %s: unsupported target %q (supported: codex, cursor, agents-md)\n", action, target)
+		fmt.Fprintf(os.Stderr, "havi %s: unsupported target %q (supported: codex, cursor, copilot, agents-md)\n", action, target)
 		return 2
 	}
+}
+
+func runCopilotInstaller(action string, args []string) int {
+	fs := flag.NewFlagSet("havi "+action+" copilot", flag.ContinueOnError)
+	global := fs.Bool("global", false, "write to VS Code user-profile mcp.json instead of ./.vscode/mcp.json")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	var (
+		path string
+		err  error
+	)
+	if *global {
+		path, err = copilot.GlobalPath()
+	} else {
+		path, err = copilot.ProjectPath()
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "copilot: failed (%v)\n", err)
+		return 1
+	}
+
+	var status copilot.Status
+	switch action {
+	case "install":
+		status, err = copilot.Install(path)
+	case "uninstall":
+		status, err = copilot.Uninstall(path)
+	default:
+		fmt.Fprintf(os.Stderr, "havi: unknown action %q\n", action)
+		return 2
+	}
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "copilot: failed (%v)\n", err)
+		return 1
+	}
+
+	fmt.Printf("copilot: %s (%s)\n", status, path)
+	return 0
 }
 
 func runCursorInstaller(action string) int {
