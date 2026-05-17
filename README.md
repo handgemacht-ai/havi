@@ -46,7 +46,14 @@ Install from the [Chrome Web Store](https://chrome.google.com/webstore/detail/de
 
 ## MCP bridge (Codex / stdio-only clients)
 
-Some MCP clients (such as OpenAI Codex CLI) communicate over stdio rather than HTTP. `havi mcp-bridge` is a thin subprocess that reads newline-delimited JSON-RPC frames from stdin, forwards them to the local havi server's `/mcp` endpoint using the Streamable HTTP MCP protocol, and writes each JSON-RPC response back to stdout. On the first request it automatically starts the havi daemon if it is not already running (opt out by setting `HAVI_NO_AUTO_REVIVE=1`). To wire it into Codex, add the following to `~/.codex/config.toml`:
+Some MCP clients (such as OpenAI Codex CLI) communicate over stdio rather than HTTP. `havi mcp-bridge` is a thin subprocess that reads newline-delimited JSON-RPC frames from stdin, forwards them to the local havi server's `/mcp` endpoint using the Streamable HTTP MCP protocol, and writes each JSON-RPC response back to stdout. On the first request it automatically starts the havi daemon if it is not already running (opt out by setting `HAVI_NO_AUTO_REVIVE=1`).
+
+```bash
+havi install codex     # add the managed [[mcp_servers]] entry to ~/.codex/config.toml
+havi uninstall codex   # remove it; leaves the rest of the file byte-identical
+```
+
+`havi install codex` first probes `codex --version`; if the Codex CLI is not on PATH it exits non-zero without writing. The entry is wrapped in a managed-block comment so re-running is a no-op and unrelated MCP servers in `~/.codex/config.toml` are left untouched. If you prefer to wire it manually, the equivalent stanza is:
 
 ```toml
 [[mcp_servers]]
