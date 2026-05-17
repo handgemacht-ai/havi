@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 
@@ -24,6 +25,20 @@ import (
 	"github.com/tidwall/pretty"
 	"github.com/tidwall/sjson"
 )
+
+// DetectCLI reports whether the VS Code CLI is present on PATH. GitHub Copilot
+// is a VS Code extension, so `code --version` is the canonical IDE-present
+// signal.
+func DetectCLI() bool {
+	bin, err := exec.LookPath("code")
+	if err != nil {
+		return false
+	}
+	cmd := exec.Command(bin, "--version")
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	return cmd.Run() == nil
+}
 
 const haviEntry = `{"command":"havi","args":["mcp-bridge"]}`
 
