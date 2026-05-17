@@ -1609,6 +1609,21 @@ func buildBridge(t *testing.T) string {
 	return binPath
 }
 
+// cleanBridgeEnv returns os.Environ() minus the DB URL variables. `just` walks
+// upward to find a .env, so under `just test` the parent worktree's
+// SERVER_DB_URL=postgres://... leaks in and would make the daemon child try
+// Postgres instead of the SQLite tempfile the test wants.
+func cleanBridgeEnv() []string {
+	var out []string
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "HAVI_DB_URL=") || strings.HasPrefix(kv, "SERVER_DB_URL=") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
 func bridgeHostPort(t *testing.T) (string, string) {
 	t.Helper()
 	addr := testServer.Listener.Addr().String()
@@ -1685,7 +1700,7 @@ func TestBridgeIntegrationKillRespawn(t *testing.T) {
 	_ = ln.Close()
 
 	cmd := exec.Command(bin, "mcp-bridge")
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(cleanBridgeEnv(),
 		"HAVI_HOST=127.0.0.1",
 		"HAVI_PORT="+port,
 		"HAVI_DATA_DIR="+dataDir,
@@ -1749,7 +1764,8 @@ func TestBridgeIntegrationKillRespawn(t *testing.T) {
 	send(1)
 	r1 := readResponse()
 	if r1["result"] == nil {
-		t.Fatalf("frame 1 missing result: %v", r1)
+		log, _ := os.ReadFile(filepath.Join(dataDir, "server.log"))
+		t.Fatalf("frame 1 missing result: %v\nserver.log:\n%s", r1, log)
 	}
 	pid1 := readPID()
 

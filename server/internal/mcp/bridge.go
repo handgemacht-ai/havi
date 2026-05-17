@@ -177,8 +177,7 @@ func parseSSEResponse(body []byte) ([][]byte, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(body))
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(line, "data: ") {
-			data := strings.TrimPrefix(line, "data: ")
+		if data, ok := strings.CutPrefix(line, "data: "); ok {
 			results = append(results, []byte(data))
 		}
 	}
@@ -218,9 +217,9 @@ func Run(ctx context.Context, in io.Reader, out io.Writer) error {
 					_, _ = out.Write(errLine)
 					continue
 				}
-				if !waitForHealth(baseURL, 5*time.Second) {
+				if !waitForHealth(baseURL, 10*time.Second) {
 					port := serverPort()
-					errMsg := fmt.Sprintf("havi server did not become ready on port %s within 5s", port)
+					errMsg := fmt.Sprintf("havi server did not become ready on port %s within 10s", port)
 					errLine := append(jsonRPCError(frameID, -32000, errMsg), '\n')
 					_, _ = out.Write(errLine)
 					continue
