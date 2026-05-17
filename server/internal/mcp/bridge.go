@@ -105,6 +105,7 @@ func spawnBridgeDaemon() error {
 	cmd.Env = append(os.Environ(),
 		daemonChildEnv+"=1",
 		"HAVI_PID_FILE="+pidFile,
+		"SERVER_PORT="+serverPort(),
 	)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
@@ -114,6 +115,8 @@ func spawnBridgeDaemon() error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start child: %w", err)
 	}
+
+	go func() { _ = cmd.Wait() }()
 
 	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(cmd.Process.Pid)), 0o644); err != nil {
 		return fmt.Errorf("write pid file: %w", err)

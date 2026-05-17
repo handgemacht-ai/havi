@@ -3,6 +3,7 @@
 package main_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"database/sql"
@@ -11,13 +12,16 @@ import (
 	"io"
 	"io/fs"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -1667,6 +1671,122 @@ func TestBridgeIntegrationHappyPath(t *testing.T) {
 	if len(tools) == 0 {
 		t.Error("expected tools in tools/list response")
 	}
+}
+
+func TestBridgeIntegrationKillRespawn(t *testing.T) {
+	bin := buildBridge(t)
+	dataDir := t.TempDir()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
+	_ = ln.Close()
+
+	cmd := exec.Command(bin, "mcp-bridge")
+	cmd.Env = append(os.Environ(),
+		"HAVI_HOST=127.0.0.1",
+		"HAVI_PORT="+port,
+		"HAVI_DATA_DIR="+dataDir,
+	)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatalf("stdin pipe: %v", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("stdout pipe: %v", err)
+	}
+	cmd.Stderr = io.Discard
+
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start bridge: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		if data, err := os.ReadFile(filepath.Join(dataDir, "havi.pid")); err == nil {
+			if pid, _ := strconv.Atoi(strings.TrimSpace(string(data))); pid > 0 {
+				_ = syscall.Kill(pid, syscall.SIGKILL)
+			}
+		}
+	})
+
+	rd := bufio.NewReader(stdout)
+	readResponse := func() map[string]any {
+		t.Helper()
+		line, err := rd.ReadString('\n')
+		if err != nil {
+			t.Fatalf("read response: %v", err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal([]byte(line), &m); err != nil {
+			t.Fatalf("unmarshal %q: %v", line, err)
+		}
+		return m
+	}
+	send := func(id int) {
+		t.Helper()
+		f := fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}`+"\n", id)
+		if _, err := stdin.Write([]byte(f)); err != nil {
+			t.Fatalf("write frame %d: %v", id, err)
+		}
+	}
+	readPID := func() int {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(dataDir, "havi.pid"))
+		if err != nil {
+			t.Fatalf("read pid file: %v", err)
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		if err != nil {
+			t.Fatalf("parse pid: %v", err)
+		}
+		return pid
+	}
+
+	send(1)
+	r1 := readResponse()
+	if r1["result"] == nil {
+		t.Fatalf("frame 1 missing result: %v", r1)
+	}
+	pid1 := readPID()
+
+	if err := syscall.Kill(pid1, syscall.SIGKILL); err != nil {
+		t.Fatalf("kill daemon: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := syscall.Kill(pid1, 0); err != nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if err := syscall.Kill(pid1, 0); err == nil {
+		t.Fatalf("daemon pid %d still alive after SIGKILL — zombie not reaped", pid1)
+	}
+
+	send(2)
+	r2 := readResponse()
+	if r2["error"] == nil {
+		t.Errorf("frame 2 after kill should error, got: %v", r2)
+	}
+
+	send(3)
+	r3 := readResponse()
+	if r3["result"] == nil {
+		t.Fatalf("frame 3 should succeed after respawn, got: %v", r3)
+	}
+
+	pid3 := readPID()
+	if pid3 == pid1 {
+		t.Errorf("expected new daemon pid after respawn; pid1=%d pid3=%d", pid1, pid3)
+	}
+
+	_ = stdin.Close()
+	_ = cmd.Wait()
 }
 
 func TestBridgeIntegrationOptOut(t *testing.T) {
