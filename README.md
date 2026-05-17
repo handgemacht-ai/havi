@@ -44,6 +44,17 @@ The installer fetches the latest release from [GitHub releases](https://github.c
 
 Install from the [Chrome Web Store](https://chrome.google.com/webstore/detail/deedaihcndphkolmnfegjfjilcadncil), then click the toolbar icon on any page to start capturing.
 
+## MCP bridge (Codex / stdio-only clients)
+
+Some MCP clients (such as OpenAI Codex CLI) communicate over stdio rather than HTTP. `havi mcp-bridge` is a thin subprocess that reads newline-delimited JSON-RPC frames from stdin, forwards them to the local havi server's `/mcp` endpoint using the Streamable HTTP MCP protocol, and writes each JSON-RPC response back to stdout. On the first request it automatically starts the havi daemon if it is not already running (opt out by setting `HAVI_NO_AUTO_REVIVE=1`). To wire it into Codex, add the following to `~/.codex/config.toml`:
+
+```toml
+[[mcp_servers]]
+name = "havi"
+command = "havi"
+args  = ["mcp-bridge"]
+```
+
 ## Storage
 
 | Path | Purpose |

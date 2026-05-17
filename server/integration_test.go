@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -1590,4 +1591,124 @@ func TestChannelNotificationShape(t *testing.T) {
 			t.Errorf("meta.annotation_id = %v, want %s", meta["annotation_id"], annID)
 		}
 	})
+}
+
+// --- Bridge integration tests ---
+
+func buildBridge(t *testing.T) string {
+	t.Helper()
+	binPath := filepath.Join(t.TempDir(), "havi")
+	out, err := exec.Command("go", "build", "-o", binPath, "./cmd/server").Output()
+	if err != nil {
+		t.Fatalf("build bridge binary: %v\n%s", err, out)
+	}
+	return binPath
+}
+
+func bridgeHostPort(t *testing.T) (string, string) {
+	t.Helper()
+	addr := testServer.Listener.Addr().String()
+	parts := strings.SplitN(addr, ":", 2)
+	if len(parts) != 2 {
+		t.Fatalf("unexpected addr format: %s", addr)
+	}
+	return parts[0], parts[1]
+}
+
+func runBridge(t *testing.T, bin, host, port string, extraEnv []string, input string) (string, error) {
+	t.Helper()
+	cmd := exec.Command(bin, "mcp-bridge")
+	cmd.Env = append(os.Environ(),
+		"HAVI_HOST="+host,
+		"HAVI_PORT="+port,
+		annotationmcp.EnvNoAutoRevive+"=1",
+	)
+	cmd.Env = append(cmd.Env, extraEnv...)
+	cmd.Stdin = strings.NewReader(input)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = io.Discard
+	err := cmd.Run()
+	return out.String(), err
+}
+
+func TestBridgeIntegrationHappyPath(t *testing.T) {
+	bin := buildBridge(t)
+	host, port := bridgeHostPort(t)
+
+	initFrame := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}` + "\n"
+	toolsFrame := `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}` + "\n"
+	input := initFrame + toolsFrame
+
+	output, err := runBridge(t, bin, host, port, nil, input)
+	if err != nil {
+		t.Fatalf("bridge exited with error: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected at least 2 response lines, got %d:\n%s", len(lines), output)
+	}
+
+	var initResp map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &initResp); err != nil {
+		t.Fatalf("unmarshal initialize response: %v\nline: %s", err, lines[0])
+	}
+	if initResp["result"] == nil {
+		t.Errorf("initialize result missing, got: %v", initResp)
+	}
+
+	var toolsResp map[string]any
+	if err := json.Unmarshal([]byte(lines[1]), &toolsResp); err != nil {
+		t.Fatalf("unmarshal tools/list response: %v\nline: %s", err, lines[1])
+	}
+	result := toolsResp["result"].(map[string]any)
+	tools := result["tools"].([]any)
+	if len(tools) == 0 {
+		t.Error("expected tools in tools/list response")
+	}
+}
+
+func TestBridgeIntegrationOptOut(t *testing.T) {
+	bin := buildBridge(t)
+	host := "127.0.0.1"
+	port := "19997"
+
+	initFrame := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}` + "\n"
+
+	start := time.Now()
+	cmd := exec.Command(bin, "mcp-bridge")
+	cmd.Env = append(os.Environ(),
+		"HAVI_HOST="+host,
+		"HAVI_PORT="+port,
+		annotationmcp.EnvNoAutoRevive+"=1",
+	)
+	cmd.Stdin = strings.NewReader(initFrame)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = io.Discard
+	_ = cmd.Run()
+	elapsed := time.Since(start)
+
+	if elapsed > 2*time.Second {
+		t.Errorf("bridge with opt-out took %v, want <2s", elapsed)
+	}
+
+	output := strings.TrimSpace(out.String())
+	if output == "" {
+		t.Fatal("expected error output, got empty")
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(output), &resp); err != nil {
+		t.Fatalf("unmarshal error response: %v\noutput: %s", err, output)
+	}
+	if resp["error"] == nil {
+		t.Errorf("expected error field, got: %v", resp)
+	}
+	errObj := resp["error"].(map[string]any)
+	msg := errObj["message"].(string)
+	if !strings.Contains(msg, port) {
+		t.Errorf("error message should mention port %s, got: %q", port, msg)
+	}
 }
