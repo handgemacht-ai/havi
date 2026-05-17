@@ -44,6 +44,22 @@ The installer fetches the latest release from [GitHub releases](https://github.c
 
 Install from the [Chrome Web Store](https://chrome.google.com/webstore/detail/deedaihcndphkolmnfegjfjilcadncil), then click the toolbar icon on any page to start capturing.
 
+## Multi-IDE install (one command)
+
+Once the `havi` binary is on your PATH, the fastest way to wire it into every IDE you use is:
+
+```bash
+havi install              # interactive: checkbox prompt with detected IDEs pre-selected
+havi install --yes        # non-interactive: install for every detected IDE
+havi install --all        # non-interactive: install for every supported target
+havi install --ides=codex,cursor,copilot,agents-md   # explicit selection (CI-friendly)
+havi uninstall --ides=...                            # mirror form for removal
+```
+
+Detection uses each IDE's CLI (`codex --version`, `cursor --version`, `code --version`); `agents-md` is always available. The interactive prompt is a checkbox list pre-checked for detected IDEs — anything you don't have installed shows up unchecked but is still selectable. After the writes, the installer prints a one-line summary per target (configured / already-configured / failed) and a hint about whether `havi serve` is reachable.
+
+A failure on one target does not block the others: writable IDEs still complete cleanly, the failing IDE is marked `✗`, and the exit code is non-zero so CI catches it. The per-IDE subcommands below remain available for scripted use — `havi install` with no arguments simply orchestrates them.
+
 ## Cursor
 
 [Cursor](https://cursor.com/) reads MCP server definitions from `~/.cursor/mcp.json`. `havi install cursor` adds (or updates) one named key — `mcpServers.havi` — and leaves every other key in the file byte-stable.

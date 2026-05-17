@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/installer/codex"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/installer/copilot"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/installer/cursor"
+	"github.com/handgemacht-ai/annotation-plugin/server/internal/installer/unified"
 	annotationmcp "github.com/handgemacht-ai/annotation-plugin/server/internal/mcp"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/middleware"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/repo"
@@ -185,28 +187,64 @@ func openRepo(ctx context.Context, dbURL string) (repo.AnnotationRepo, func(), e
 // codexInstallHint is shown when `codex --version` does not exit zero.
 const codexInstallHint = "install Codex CLI: npm install -g @openai/codex (or see https://github.com/openai/codex)"
 
-// runInstaller dispatches `havi install <target>` / `havi uninstall <target>`
-// and returns the process exit code.
+// runInstaller dispatches `havi install` / `havi uninstall`. With no target
+// argument (or with target flags like --ides / --all / --yes) it routes to
+// the unified multi-IDE orchestrator. With an explicit target token it routes
+// to the per-IDE writer for that target — preserving backward compatibility
+// with `havi install codex`, `havi install cursor`, etc.
 func runInstaller(action string, args []string) int {
-	if len(args) < 1 {
-		fmt.Fprintf(os.Stderr, "usage: havi %s <target>\n  supported targets: codex, cursor, copilot, agents-md\n", action)
+	if len(args) >= 1 && !strings.HasPrefix(args[0], "-") {
+		target := args[0]
+		rest := args[1:]
+		switch target {
+		case "codex":
+			return runCodexInstaller(action)
+		case "cursor":
+			return runCursorInstaller(action)
+		case "copilot":
+			return runCopilotInstaller(action, rest)
+		case "agents-md":
+			return runAgentsMDInstaller(action, rest)
+		default:
+			fmt.Fprintf(os.Stderr, "havi %s: unsupported target %q (supported: codex, cursor, copilot, agents-md)\n", action, target)
+			return 2
+		}
+	}
+	return runUnifiedInstaller(action, args)
+}
+
+func runUnifiedInstaller(action string, args []string) int {
+	fs := flag.NewFlagSet("havi "+action, flag.ContinueOnError)
+	idesCSV := fs.String("ides", "", "comma-separated explicit targets (codex,cursor,copilot,agents-md)")
+	yes := fs.Bool("yes", false, "skip interactive prompt; use detected defaults")
+	all := fs.Bool("all", false, "skip interactive prompt; select every known target")
+	port := fs.String("port", "", "havi server port for the post-install health hint (default 8090)")
+	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	target := args[0]
-	rest := args[1:]
-	switch target {
-	case "codex":
-		return runCodexInstaller(action)
-	case "cursor":
-		return runCursorInstaller(action)
-	case "copilot":
-		return runCopilotInstaller(action, rest)
-	case "agents-md":
-		return runAgentsMDInstaller(action, rest)
-	default:
-		fmt.Fprintf(os.Stderr, "havi %s: unsupported target %q (supported: codex, cursor, copilot, agents-md)\n", action, target)
-		return 2
+
+	opts := unified.Options{
+		Yes:  *yes,
+		All:  *all,
+		Port: *port,
 	}
+	if action == "uninstall" {
+		opts.Action = unified.ActionUninstall
+	}
+	if *idesCSV != "" {
+		for _, k := range strings.Split(*idesCSV, ",") {
+			k = strings.TrimSpace(k)
+			if k != "" {
+				opts.IDEs = append(opts.IDEs, k)
+			}
+		}
+	}
+
+	_, err := unified.Run(context.Background(), opts)
+	if err != nil {
+		return 1
+	}
+	return 0
 }
 
 func runCopilotInstaller(action string, args []string) int {

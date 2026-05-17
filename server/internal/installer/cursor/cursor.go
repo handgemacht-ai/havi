@@ -10,12 +10,27 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/pretty"
 	"github.com/tidwall/sjson"
 )
+
+// DetectCLI reports whether the Cursor CLI is present on PATH. Per the
+// ide-detection-cli-only constraint, the IDE is "present" iff its CLI exits
+// zero. We invoke `cursor --version` rather than relying on file paths.
+func DetectCLI() bool {
+	bin, err := exec.LookPath("cursor")
+	if err != nil {
+		return false
+	}
+	cmd := exec.Command(bin, "--version")
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	return cmd.Run() == nil
+}
 
 // haviEntry is the JSON value havi writes under mcpServers.havi.
 const haviEntry = `{"command":"havi","args":["mcp-bridge"]}`
