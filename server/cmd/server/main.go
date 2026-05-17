@@ -30,6 +30,12 @@ const daemonChildEnv = "HAVI_DAEMON_CHILD"
 
 func main() {
 	args := os.Args[1:]
+	if len(args) > 0 && args[0] == "mcp-bridge" {
+		if err := annotationmcp.Run(context.Background(), os.Stdin, os.Stdout); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if len(args) > 0 && args[0] == "serve" {
 		args = args[1:]
 	}

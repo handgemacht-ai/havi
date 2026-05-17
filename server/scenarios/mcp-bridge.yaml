@@ -1,0 +1,27 @@
+title: mcp-bridge happy-path round-trip
+description: |
+  Verify that havi mcp-bridge proxies newline-delimited JSON-RPC frames to the
+  MCP endpoint, returns SSE-unwrapped JSON-RPC responses on stdout, and exits 0
+  on stdin EOF.
+
+steps:
+  - name: initialize
+    input: |
+      {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"codex","version":"1.0"}}}
+    expect:
+      jsonrpc: "2.0"
+      id: 1
+      result:
+        protocolVersion: "2025-03-26"
+
+  - name: tools/list returns expected tools
+    input: |
+      {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+    expect:
+      jsonrpc: "2.0"
+      id: 2
+      result:
+        tools:
+          - name: list_annotations
+          - name: get_annotation_image
+          - name: resolve_annotation
