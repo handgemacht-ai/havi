@@ -64,6 +64,19 @@ args  = ["mcp-bridge"]
 
 `HAVI_NO_AUTO_REVIVE` is honored by every revival mechanism — the Codex stdio bridge (above) and the Claude Code plugin's `SessionStart` hook. Export it once in your shell to disable all automatic daemon spawning; `havi serve` still works when invoked manually.
 
+## Agent instructions (AGENTS.md)
+
+[`AGENTS.md`](https://agents.md/) is a Linux Foundation standard (December 2025) read by Codex, Cursor, GitHub Copilot, Gemini CLI, Windsurf, and other coding agents. `havi install agents-md` writes a managed block describing the three havi MCP tools (`list_annotations`, `get_annotation_image`, `resolve_annotation`), the git-context preamble agents should run before each call, and how to review and resolve annotations.
+
+```bash
+havi install agents-md             # writes ./AGENTS.md in the current project
+havi install agents-md --global    # writes ~/.codex/AGENTS.md (user-global fallback)
+havi uninstall agents-md           # removes the managed block; rest of file byte-identical
+havi uninstall agents-md --global  # same, against the global file
+```
+
+The managed block is wrapped in HTML comments so the rest of the file (existing prose, other sections, team conventions) stays byte-identical between runs. Editing inside the block is overwritten on the next `install`; everything outside is preserved.
+
 ## Storage
 
 | Path | Purpose |

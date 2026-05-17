@@ -18,6 +18,7 @@ import (
 
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/controller"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/db"
+	"github.com/handgemacht-ai/annotation-plugin/server/internal/installer/agentsmd"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/installer/codex"
 	annotationmcp "github.com/handgemacht-ai/annotation-plugin/server/internal/mcp"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/middleware"
@@ -182,21 +183,65 @@ func openRepo(ctx context.Context, dbURL string) (repo.AnnotationRepo, func(), e
 // codexInstallHint is shown when `codex --version` does not exit zero.
 const codexInstallHint = "install Codex CLI: npm install -g @openai/codex (or see https://github.com/openai/codex)"
 
-// runInstaller dispatches `havi install <ide>` / `havi uninstall <ide>` and
-// returns the process exit code.
+// runInstaller dispatches `havi install <target>` / `havi uninstall <target>`
+// and returns the process exit code.
 func runInstaller(action string, args []string) int {
 	if len(args) < 1 {
-		fmt.Fprintf(os.Stderr, "usage: havi %s <ide>\n  supported IDEs: codex\n", action)
+		fmt.Fprintf(os.Stderr, "usage: havi %s <target>\n  supported targets: codex, agents-md\n", action)
 		return 2
 	}
-	ide := args[0]
-	switch ide {
+	target := args[0]
+	rest := args[1:]
+	switch target {
 	case "codex":
 		return runCodexInstaller(action)
+	case "agents-md":
+		return runAgentsMDInstaller(action, rest)
 	default:
-		fmt.Fprintf(os.Stderr, "havi %s: unsupported IDE %q (supported: codex)\n", action, ide)
+		fmt.Fprintf(os.Stderr, "havi %s: unsupported target %q (supported: codex, agents-md)\n", action, target)
 		return 2
 	}
+}
+
+func runAgentsMDInstaller(action string, args []string) int {
+	fs := flag.NewFlagSet("havi "+action+" agents-md", flag.ContinueOnError)
+	global := fs.Bool("global", false, "write to ~/.codex/AGENTS.md instead of ./AGENTS.md")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	var (
+		path string
+		err  error
+	)
+	if *global {
+		path, err = agentsmd.GlobalPath()
+	} else {
+		path, err = agentsmd.ProjectPath()
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "agents-md: failed (%v)\n", err)
+		return 1
+	}
+
+	var status agentsmd.Status
+	switch action {
+	case "install":
+		status, err = agentsmd.Install(path)
+	case "uninstall":
+		status, err = agentsmd.Uninstall(path)
+	default:
+		fmt.Fprintf(os.Stderr, "havi: unknown action %q\n", action)
+		return 2
+	}
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "agents-md: failed (%v)\n", err)
+		return 1
+	}
+
+	fmt.Printf("agents-md: %s (%s)\n", status, path)
+	return 0
 }
 
 func runCodexInstaller(action string) int {
