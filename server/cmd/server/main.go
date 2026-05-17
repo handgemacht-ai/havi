@@ -20,6 +20,7 @@ import (
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/db"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/installer/agentsmd"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/installer/codex"
+	"github.com/handgemacht-ai/annotation-plugin/server/internal/installer/cursor"
 	annotationmcp "github.com/handgemacht-ai/annotation-plugin/server/internal/mcp"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/middleware"
 	"github.com/handgemacht-ai/annotation-plugin/server/internal/repo"
@@ -187,7 +188,7 @@ const codexInstallHint = "install Codex CLI: npm install -g @openai/codex (or se
 // and returns the process exit code.
 func runInstaller(action string, args []string) int {
 	if len(args) < 1 {
-		fmt.Fprintf(os.Stderr, "usage: havi %s <target>\n  supported targets: codex, agents-md\n", action)
+		fmt.Fprintf(os.Stderr, "usage: havi %s <target>\n  supported targets: codex, cursor, agents-md\n", action)
 		return 2
 	}
 	target := args[0]
@@ -195,12 +196,41 @@ func runInstaller(action string, args []string) int {
 	switch target {
 	case "codex":
 		return runCodexInstaller(action)
+	case "cursor":
+		return runCursorInstaller(action)
 	case "agents-md":
 		return runAgentsMDInstaller(action, rest)
 	default:
-		fmt.Fprintf(os.Stderr, "havi %s: unsupported target %q (supported: codex, agents-md)\n", action, target)
+		fmt.Fprintf(os.Stderr, "havi %s: unsupported target %q (supported: codex, cursor, agents-md)\n", action, target)
 		return 2
 	}
+}
+
+func runCursorInstaller(action string) int {
+	path, err := cursor.ConfigPath()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cursor: failed (%v)\n", err)
+		return 1
+	}
+
+	var status cursor.Status
+	switch action {
+	case "install":
+		status, err = cursor.Install(path)
+	case "uninstall":
+		status, err = cursor.Uninstall(path)
+	default:
+		fmt.Fprintf(os.Stderr, "havi: unknown action %q\n", action)
+		return 2
+	}
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cursor: failed (%v)\n", err)
+		return 1
+	}
+
+	fmt.Printf("cursor: %s (%s)\n", status, path)
+	return 0
 }
 
 func runAgentsMDInstaller(action string, args []string) int {
