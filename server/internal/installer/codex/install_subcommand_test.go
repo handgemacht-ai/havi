@@ -147,9 +147,9 @@ func TestSubcommand_UnsupportedIDE_ExitsTwo(t *testing.T) {
 
 	_, stderr, code := runHavi(t, bin, configPath, "", "install", "nonesuch")
 	if code != 2 {
-		t.Errorf("expected exit 2 for unsupported IDE; got %d (stderr: %s)", code, stderr)
+		t.Errorf("expected exit 2 for unsupported target; got %d (stderr: %s)", code, stderr)
 	}
-	if !strings.Contains(stderr, "unsupported IDE") {
-		t.Errorf("expected unsupported IDE stderr; got: %s", stderr)
+	if !strings.Contains(stderr, "unsupported target") {
+		t.Errorf("expected unsupported target stderr; got: %s", stderr)
 	}
 }
