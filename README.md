@@ -44,6 +44,28 @@ The installer fetches the latest release from [GitHub releases](https://github.c
 
 Install from the [Chrome Web Store](https://chrome.google.com/webstore/detail/deedaihcndphkolmnfegjfjilcadncil), then click the toolbar icon on any page to start capturing.
 
+## Cursor
+
+[Cursor](https://cursor.com/) reads MCP server definitions from `~/.cursor/mcp.json`. `havi install cursor` adds (or updates) one named key — `mcpServers.havi` — and leaves every other key in the file byte-stable.
+
+```bash
+havi install cursor     # add or update mcpServers.havi in ~/.cursor/mcp.json
+havi uninstall cursor   # remove mcpServers.havi; unrelated servers stay
+```
+
+Re-running `install` is a no-op when the entry already matches. Uninstall deletes the file entirely when havi was the only key; otherwise it preserves every byte outside `mcpServers.havi`. The equivalent stanza, if you prefer to write it yourself, is:
+
+```json
+{
+  "mcpServers": {
+    "havi": {
+      "command": "havi",
+      "args": ["mcp-bridge"]
+    }
+  }
+}
+```
+
 ## MCP bridge (Codex / stdio-only clients)
 
 Some MCP clients (such as OpenAI Codex CLI) communicate over stdio rather than HTTP. `havi mcp-bridge` is a thin subprocess that reads newline-delimited JSON-RPC frames from stdin, forwards them to the local havi server's `/mcp` endpoint using the Streamable HTTP MCP protocol, and writes each JSON-RPC response back to stdout. On the first request it automatically starts the havi daemon if it is not already running (opt out by setting `HAVI_NO_AUTO_REVIVE=1`).
