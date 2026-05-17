@@ -19,4 +19,9 @@ if [ -f "$PID_FILE" ]; then
   fi
 fi
 
+if [ -n "${HAVI_NO_AUTO_REVIVE:-}" ]; then
+  echo "havi: auto-revive opted out via HAVI_NO_AUTO_REVIVE; not spawning daemon" >&2
+  exit 0
+fi
+
 HAVI_DATA_DIR="$DATA_DIR" havi serve --daemon >/dev/null 2>&1 || true

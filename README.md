@@ -55,6 +55,8 @@ command = "havi"
 args  = ["mcp-bridge"]
 ```
 
+`HAVI_NO_AUTO_REVIVE` is honored by every revival mechanism — the Codex stdio bridge (above) and the Claude Code plugin's `SessionStart` hook. Export it once in your shell to disable all automatic daemon spawning; `havi serve` still works when invoked manually.
+
 ## Storage
 
 | Path | Purpose |

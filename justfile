@@ -50,10 +50,13 @@ lint:
 fmt:
     cd server && gofmt -w .
 
-test: test-server
+test: test-server test-plugin
 
 test-server:
     cd server && go test -tags scenario -count=1 ./...
+
+test-plugin:
+    bash plugin/tests/ensure-server-test.sh
 
 build-firefox:
     bash scripts/build-firefox.sh
