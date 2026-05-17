@@ -241,6 +241,7 @@ func Run(ctx context.Context, in io.Reader, out io.Writer) error {
 		resp, err := client.Do(req)
 		if err != nil {
 			serverReady = false
+			sessionID = ""
 			errLine := append(jsonRPCError(frameID, -32000, fmt.Sprintf("server unreachable: %v", err)), '\n')
 			_, _ = out.Write(errLine)
 			continue

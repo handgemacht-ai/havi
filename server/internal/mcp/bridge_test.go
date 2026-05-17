@@ -255,6 +255,106 @@ func TestBridgeHappyPath(t *testing.T) {
 	}
 }
 
+func TestBridgeClearsSessionIDOnTransportError(t *testing.T) {
+	var (
+		postCount   int32
+		dead        bool
+		seenHeaders []string
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/health":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, `{"status":"ok"}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/mcp":
+			postCount++
+			seenHeaders = append(seenHeaders, r.Header.Get("Mcp-Session-Id"))
+			if dead {
+				panic(http.ErrAbortHandler)
+			}
+			sid := fmt.Sprintf("sess-%d", postCount)
+			w.Header().Set("Mcp-Session-Id", sid)
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = fmt.Fprintf(w, "data: {\"jsonrpc\":\"2.0\",\"id\":%d,\"result\":{}}\n\n", postCount)
+		case r.Method == http.MethodDelete && r.URL.Path == "/mcp":
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+	defer srv.Close()
+
+	host, port := parseHostPort(srv.URL)
+	t.Setenv("HAVI_HOST", host)
+	t.Setenv("HAVI_PORT", port)
+	t.Setenv(EnvNoAutoRevive, "1")
+
+	frame1 := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}` + "\n"
+	frame2 := `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}` + "\n"
+	frame3 := `{"jsonrpc":"2.0","id":3,"method":"tools/list","params":{}}` + "\n"
+
+	in := newScriptedReader([]string{
+		frame1,
+		"__kill__",
+		frame2,
+		"__revive__",
+		frame3,
+	}, func(tok string) {
+		switch tok {
+		case "__kill__":
+			dead = true
+		case "__revive__":
+			dead = false
+		}
+	})
+
+	var out bytes.Buffer
+	if err := Run(context.Background(), in, &out); err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+
+	if len(seenHeaders) != 3 {
+		t.Fatalf("expected 3 POSTs, got %d (headers=%v)", len(seenHeaders), seenHeaders)
+	}
+	if seenHeaders[0] != "" {
+		t.Errorf("frame 1 should have no session ID, got %q", seenHeaders[0])
+	}
+	if seenHeaders[1] != "sess-1" {
+		t.Errorf("frame 2 should echo sess-1 (still believing daemon is alive), got %q", seenHeaders[1])
+	}
+	if seenHeaders[2] != "" {
+		t.Errorf("frame 3 must NOT carry stale session after transport error, got %q", seenHeaders[2])
+	}
+}
+
+type scriptedReader struct {
+	frames []string
+	hook   func(string)
+	i      int
+	cur    []byte
+}
+
+func newScriptedReader(frames []string, hook func(string)) *scriptedReader {
+	return &scriptedReader{frames: frames, hook: hook}
+}
+
+func (r *scriptedReader) Read(p []byte) (int, error) {
+	for len(r.cur) == 0 {
+		if r.i >= len(r.frames) {
+			return 0, fmt.Errorf("EOF")
+		}
+		f := r.frames[r.i]
+		r.i++
+		if strings.HasPrefix(f, "__") {
+			r.hook(f)
+			continue
+		}
+		r.cur = []byte(f)
+	}
+	n := copy(p, r.cur)
+	r.cur = r.cur[n:]
+	return n, nil
+}
+
 func parseHostPort(rawURL string) (string, string) {
 	trimmed := strings.TrimPrefix(rawURL, "http://")
 	parts := strings.SplitN(trimmed, ":", 2)
