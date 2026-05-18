@@ -1,0 +1,82 @@
+name: Installer CI
+
+on:
+  pull_request:
+    paths:
+      - 'server/internal/installer/**'
+      - 'server/cmd/server/**'
+      - 'server/go.mod'
+      - 'server/go.sum'
+      - 'plugin/**'
+      - 'docs/installer-coverage-matrix.md'
+      - '.github/workflows/installer-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'server/internal/installer/**'
+      - 'server/cmd/server/**'
+      - 'server/go.mod'
+      - 'server/go.sum'
+      - 'plugin/**'
+      - 'docs/installer-coverage-matrix.md'
+      - '.github/workflows/installer-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  per-ide:
+    name: ${{ matrix.ide }}-linux
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ide: codex
+            packages: ./internal/installer/codex/... ./internal/installer/unified/...
+            plugin_smoke: false
+          - ide: cursor
+            packages: ./internal/installer/cursor/... ./internal/installer/unified/...
+            plugin_smoke: false
+          - ide: copilot
+            packages: ./internal/installer/copilot/... ./internal/installer/unified/...
+            plugin_smoke: false
+          - ide: claude
+            packages: ./internal/installer/agentsmd/... ./internal/installer/unified/...
+            plugin_smoke: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Run Go tests for ${{ matrix.ide }}
+        working-directory: server
+        env:
+          PACKAGES: ${{ matrix.packages }}
+        run: go test -count=1 $PACKAGES
+
+      - name: Run plugin smoke tests (claude only)
+        if: matrix.plugin_smoke == true
+        run: bash plugin/tests/ensure-server-test.sh
+
+      - name: Link to coverage matrix
+        env:
+          IDE: ${{ matrix.ide }}
+          PACKAGES: ${{ matrix.packages }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          {
+            echo "### $IDE on Linux"
+            echo ""
+            echo "Per-IDE Go packages: \`$PACKAGES\`"
+            echo ""
+            echo "Coverage matrix (every IDE × Linux × scenario cell with status + justification):"
+            echo ""
+            echo "[docs/installer-coverage-matrix.md](https://github.com/$REPO/blob/$SHA/docs/installer-coverage-matrix.md)"
+          } >> "$GITHUB_STEP_SUMMARY"
