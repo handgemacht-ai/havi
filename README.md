@@ -181,3 +181,4 @@ just lint         # golangci-lint
 - [ROADMAP.md](ROADMAP.md) — full scope and milestones
 - [CHANGELOG.md](CHANGELOG.md) — release notes
 - [PRIVACY.md](PRIVACY.md) — data handling
+- [docs/installer-coverage-matrix.md](docs/installer-coverage-matrix.md) — per-IDE × scenario coverage status (auto-CI / manual-checklist / N/A) for `havi install`
